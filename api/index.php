@@ -125,6 +125,9 @@ function handleBio(PDO $pdo, string $method, ?string $id): void
         if ($bid === '' || !validDate($date)) {
             Response::error('Некорректный замер', 422);
         }
+        if (!validBioMetrics($b)) {
+            Response::error('Некорректное значение метрики', 422);
+        }
         upsertBio($pdo, $b, $metrics);
         Response::json(bioById($pdo, $date, $metrics));
     }
@@ -196,7 +199,7 @@ function handleImport(PDO $pdo, string $method): void
             if (!is_array($e)) continue;
             $bid = trim((string) ($e['id'] ?? ''));
             $date = (string) ($e['date'] ?? '');
-            if ($bid === '' || !validDate($date)) continue;
+            if ($bid === '' || !validDate($date) || !validBioMetrics($e)) continue;
             upsertBio($pdo, $e, $metrics);
             $nB++;
         }
@@ -291,4 +294,21 @@ function validDate(string $d): bool
         return false;
     }
     return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+}
+
+/**
+ * Биометрики не должны быть отрицательными или превышать ёмкость колонок
+ * (schema.sql: weight/muscle DECIMAL(5,1) -> 9999.9; остальные DECIMAL(4,1) -> 999.9),
+ * иначе strict-режим MySQL отдаст 500. Пустое/null поле допустимо (пропуск метрики).
+ */
+function validBioMetrics(array $b): bool
+{
+    $max = ['weight' => 9999.9, 'muscle' => 9999.9, 'fat' => 999.9, 'water' => 999.9, 'visceral' => 999.9, 'bone' => 999.9];
+    foreach ($max as $m => $limit) {
+        if (!isset($b[$m]) || $b[$m] === null || $b[$m] === '') continue;
+        if (!is_numeric($b[$m])) return false;
+        $v = (float) $b[$m];
+        if ($v < 0 || $v > $limit) return false;
+    }
+    return true;
 }

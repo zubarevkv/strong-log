@@ -25,8 +25,7 @@ CREATE TABLE IF NOT EXISTS bio_entries (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- опционально: справочник единых названий упражнений (шаг 6 спеки)
-CREATE TABLE IF NOT EXISTS exercise_aliases (
-  alias  VARCHAR(120) PRIMARY KEY,
-  canon  VARCHAR(120) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Справочник единых названий упражнений (HANDOFF §8) намеренно не заводим:
+-- канон захардкожен в api/lib/Canon.php (зеркало src/data.js) и применяется
+-- на сейве/импорте/сидинге. Если канон когда-нибудь вынесут в БД — добавить
+-- сюда таблицу exercise_aliases (alias PK, canon).

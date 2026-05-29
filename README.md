@@ -40,8 +40,14 @@ db/
   schema.sql           схема MySQL
   seed.php             сид истории в БД (CLI), идемпотентно
   seed-history.json    10 исторических тренировок (источник сида)
+scripts/
+  check-canon.php      сверяет словарь канона: api/lib/Canon.php ↔ src/data.js
 fitness-tracker.jsx     исходный прототип (референс, не в сборке)
 ```
+
+Канон названий упражнений продублирован в `api/lib/Canon.php` (сервер) и
+`src/data.js` (клиент). При правке словаря держать обе карты в синхроне и
+прогонять `php scripts/check-canon.php` — он падает при расхождении.
 
 ## Разработка фронта
 
