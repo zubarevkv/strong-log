@@ -1,6 +1,16 @@
-node_modules
-dist
+node_modules/
+dist/
 .env
 .env.local
+*.local
+
+# секреты бэкенда — не коммитим (см. .env.example / api/config.local.example.php)
 api/config.local.php
+
+# deploy-архив (регенерируется, в репозиторий не нужен)
 *.zip
+
+# editor / os
+.DS_Store
+.vscode/
+*.log
