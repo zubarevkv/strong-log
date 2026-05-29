@@ -1,0 +1,18 @@
+# Все запросы /api/* -> index.php (фронт-контроллер).
+# Beget/Apache: mod_rewrite включён по умолчанию.
+
+RewriteEngine On
+
+# Пробрасываем заголовок Authorization (некоторые конфиги его срезают)
+RewriteCond %{HTTP:Authorization} ^(.*)$
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+
+# Существующие файлы отдаём как есть, остальное — в роутер
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+# Не отдавать конфиги/секреты напрямую
+<FilesMatch "^(config\.php|config\.local\.php|config\.local\.example\.php)$">
+  Require all denied
+</FilesMatch>

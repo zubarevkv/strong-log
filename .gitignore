@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.local
+*.local
+
+# секреты бэкенда — не коммитим (см. .env.example / api/config.local.example.php)
+api/config.local.php
+
+# editor / os
+.DS_Store
+.vscode/
+*.log
