@@ -172,7 +172,6 @@ export const CSS = `
 .ft-ex-del{margin-left:auto;color:${C.muted};}
 .ft-toast{display:flex;align-items:center;gap:7px;margin-top:10px;padding:9px 12px;background:rgba(200,242,63,.12);border:1px solid ${C.accent};color:${C.accent};border-radius:9px;font-size:13px;font-weight:600;animation:ft-pop .25s ease;}
 @keyframes ft-pop{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
-.ft-confirm-del{background:${C.danger};color:#fff;border:none;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;}
 
 .ft-datebar{justify-content:flex-start;gap:10px;margin-bottom:10px;}
 .ft-input{background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:7px 9px;font-size:14px;width:100%;outline:none;transition:.12s;}
@@ -210,6 +209,11 @@ export const CSS = `
 .ft-select-wrap{position:relative;flex:1;min-width:160px;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
+
+/* backup (export / import) */
+.ft-backup{margin-top:22px;border-style:dashed;}
+.ft-backup-b{background:${C.bg};color:${C.txt};border:1px solid ${C.line};}
+.ft-backup-b:hover:not(:disabled){background:${C.bg};border-color:${C.accent};color:${C.accent};}
 
 /* token gate */
 .ft-gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}

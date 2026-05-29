@@ -60,6 +60,8 @@ const remote = {
   getBio: () => req("GET", "/bio"),
   saveBio: (b) => req("POST", "/bio", b),
   deleteBio: (id) => req("DELETE", `/bio/${encodeURIComponent(id)}`),
+  exportAll: () => req("GET", "/export"),
+  importAll: (payload) => req("POST", "/import", payload),
 };
 
 /* ============================================================
@@ -93,6 +95,27 @@ const local = {
   async deleteBio(id) {
     lsSet(LS.bio, lsGet(LS.bio).filter((x) => x.id !== id));
     return null;
+  },
+  async exportAll() {
+    return { sessions: lsGet(LS.sessions), bio: lsGet(LS.bio) };
+  },
+  async importAll(payload) {
+    const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+    const bio = Array.isArray(payload?.bio) ? payload.bio : [];
+    // upsert по id / по дате (для bio) — как делает сервер
+    const curS = lsGet(LS.sessions);
+    sessions.forEach((s) => {
+      const i = curS.findIndex((x) => x.id === s.id);
+      if (i >= 0) curS[i] = s; else curS.unshift(s);
+    });
+    lsSet(LS.sessions, curS);
+    const curB = lsGet(LS.bio);
+    bio.forEach((b) => {
+      const i = curB.findIndex((x) => x.id === b.id || x.date === b.date);
+      if (i >= 0) curB[i] = b; else curB.unshift(b);
+    });
+    lsSet(LS.bio, curB);
+    return { imported: { sessions: sessions.length, bio: bio.length } };
   },
 };
 

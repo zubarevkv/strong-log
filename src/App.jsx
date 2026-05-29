@@ -5,8 +5,8 @@ import {
 } from "recharts";
 import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
-  Plus, Trash2, Check, X, ChevronDown, ChevronUp, Flame, ArrowUp, ArrowDown,
-  LogOut, KeyRound, CloudOff,
+  Plus, Trash2, Check, ChevronDown, ChevronUp, Flame, ArrowUp, ArrowDown,
+  LogOut, KeyRound, CloudOff, Download, Upload, Database,
 } from "lucide-react";
 
 import {
@@ -135,6 +135,8 @@ export default function App() {
         {tab === "log" && <Log sessions={sessions} addSession={addSession} removeSession={removeSession} onErr={setSyncErr} />}
         {tab === "body" && <Body bio={bio} upsertBio={upsertBio} removeBio={removeBio} onErr={setSyncErr} />}
         {tab === "progress" && <Progress sessions={sessions} bio={bio} />}
+
+        <Backup sessions={sessions} bio={bio} reload={load} onErr={setSyncErr} />
       </main>
     </div>
   );
@@ -278,7 +280,6 @@ function Log({ sessions, addSession, removeSession, onErr }) {
   const [form, setForm] = useState(() => initForm(TEMPLATES[0]));
   const [openHist, setOpenHist] = useState(false);
   const [toast, setToast] = useState("");
-  const [confirmId, setConfirmId] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const lastDates = useMemo(() => {
@@ -349,10 +350,11 @@ function Log({ sessions, addSession, removeSession, onErr }) {
       setSaving(false);
     }
   }
-  async function delSession(id) {
-    try { await removeSession(id); }
+  async function delSession(s) {
+    const tpl = TEMPLATES.find((t) => t.id === s.templateId);
+    if (!window.confirm(`Удалить тренировку «${tpl?.name || "Тренировка"}» от ${fmtDate(s.date)}?`)) return;
+    try { await removeSession(s.id); }
     catch (e) { onErr(e.message || "Не удалось удалить"); }
-    setConfirmId(null);
   }
 
   const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
@@ -441,18 +443,9 @@ function Log({ sessions, addSession, removeSession, onErr }) {
                   </div>
                   <div className="ft-row" style={{ gap: 10 }}>
                     <span className="ft-mono ft-muted ft-mini">{Math.round(totalVol)} об.</span>
-                    {confirmId === s.id ? (
-                      <span className="ft-row" style={{ gap: 4 }}>
-                        <button className="ft-confirm-del" onClick={() => delSession(s.id)}>Удалить</button>
-                        <button className="ft-icon-b" onClick={() => setConfirmId(null)} title="Отмена">
-                          <X size={15} />
-                        </button>
-                      </span>
-                    ) : (
-                      <button className="ft-icon-b" onClick={() => setConfirmId(s.id)} title="Удалить тренировку">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <button className="ft-icon-b" onClick={() => delSession(s)} title="Удалить тренировку">
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
                 {s.exercises.map((e, i) => (
@@ -487,7 +480,6 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
   const empty = { date: today(), weight: "", fat: "", muscle: "", water: "", visceral: "", bone: "", note: "" };
   const [f, setF] = useState(empty);
   const [toast, setToast] = useState("");
-  const [confirmId, setConfirmId] = useState(null);
   const [saving, setSaving] = useState(false);
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2400); }
 
@@ -510,10 +502,10 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
       setSaving(false);
     }
   }
-  async function del(id) {
-    try { await removeBio(id); }
+  async function del(b) {
+    if (!window.confirm(`Удалить замер от ${fmtDate(b.date)}?`)) return;
+    try { await removeBio(b.id); }
     catch (e) { onErr(e.message || "Не удалось удалить"); }
-    setConfirmId(null);
   }
 
   const sorted = [...bio].sort((a, b) => b.date.localeCompare(a.date));
@@ -549,18 +541,9 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
         <div key={b.id} className="ft-card ft-hist">
           <div className="ft-row">
             <strong className="ft-mono">{fmtDate(b.date)}</strong>
-            {confirmId === b.id ? (
-              <span className="ft-row" style={{ gap: 4 }}>
-                <button className="ft-confirm-del" onClick={() => del(b.id)}>Удалить</button>
-                <button className="ft-icon-b" onClick={() => setConfirmId(null)} title="Отмена">
-                  <X size={15} />
-                </button>
-              </span>
-            ) : (
-              <button className="ft-icon-b" onClick={() => setConfirmId(b.id)} title="Удалить замер">
-                <Trash2 size={14} />
-              </button>
-            )}
+            <button className="ft-icon-b" onClick={() => del(b)} title="Удалить замер">
+              <Trash2 size={14} />
+            </button>
           </div>
           <div className="ft-bio-grid" style={{ marginTop: 6 }}>
             {BIO_METRICS.map((m) => b[m.k] != null && (
@@ -655,6 +638,81 @@ function Progress({ sessions, bio }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------- BACKUP (export / import) ---------------------------- */
+function Backup({ sessions, bio, reload, onErr }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const fileRef = React.useRef(null);
+  function flash(m) { setMsg(m); setTimeout(() => setMsg(""), 3000); }
+
+  async function exportData() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const data = await api.exportAll();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `strong-log-backup-${today()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      flash(`Выгружено: ${data.sessions?.length || 0} трен., ${data.bio?.length || 0} замеров`);
+    } catch (e) {
+      onErr(e.message || "Не удалось выгрузить");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importData(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // позволяем выбрать тот же файл повторно
+    if (!file || busy) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!payload || (!Array.isArray(payload.sessions) && !Array.isArray(payload.bio))) {
+        throw new Error("Файл не похож на бэкап STRØNG·LOG");
+      }
+      const cnt = (payload.sessions?.length || 0) + (payload.bio?.length || 0);
+      if (!window.confirm(`Импортировать ${cnt} записей? Существующие с теми же id/датами будут перезаписаны.`)) {
+        setBusy(false);
+        return;
+      }
+      const res = await api.importAll(payload);
+      await reload();
+      const im = res?.imported || {};
+      flash(`Импортировано: ${im.sessions ?? payload.sessions?.length ?? 0} трен., ${im.bio ?? payload.bio?.length ?? 0} замеров`);
+    } catch (e) {
+      onErr(e.message || "Не удалось импортировать");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ft-card ft-backup">
+      <div className="ft-card-h"><Database size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />Бэкап данных</div>
+      <div className="ft-mini ft-muted" style={{ marginBottom: 10 }}>
+        Выгрузка всех тренировок и замеров в JSON-файл и восстановление из него.
+      </div>
+      <div className="ft-row" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
+        <button className="ft-btn ft-backup-b" onClick={exportData} disabled={busy}>
+          <Download size={15} /> Выгрузить
+        </button>
+        <button className="ft-btn ft-backup-b" onClick={() => fileRef.current?.click()} disabled={busy}>
+          <Upload size={15} /> Импортировать
+        </button>
+        <input ref={fileRef} type="file" accept="application/json,.json"
+          onChange={importData} style={{ display: "none" }} />
+      </div>
+      {msg && <div className="ft-toast" style={{ marginTop: 10 }}><Check size={15} /> {msg}</div>}
     </div>
   );
 }

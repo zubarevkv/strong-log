@@ -7,15 +7,18 @@
 
 ## Статус
 
-Реализованы шаги **1–4** плана (HANDOFF §9):
+Реализованы шаги **1–10** плана (HANDOFF §9):
 
 1. ✅ Vite-проект, React-компонент вынесен в `src/` (`App.jsx` + `data.js`), подключены `recharts`, `lucide-react`, шрифты.
 2. ✅ Доступ к данным вынесен в модуль `src/api.js` (fetch + Bearer-токен), `store`/`window.storage` убран.
 3. ✅ Экран ввода токена (gate) + хранение токена в `localStorage`, кнопка выхода.
 4. ✅ Бэкенд PHP `/api/*` — PDO + MySQL, prepared statements, проверка токена в middleware.
-
-Ещё не сделано (шаги 5–10): сид истории в БД, серверная нормализация названий и `/import`,
-деплой-сборка на домен, `/export` `/import`, нативный `confirm` вместо инлайн-подтверждения.
+5. ✅ Схема БД (`db/schema.sql`) + сид истории (`db/seed.php` ← `db/seed-history.json`, 10 тренировок).
+6. ✅ Серверная нормализация названий (`api/lib/Canon.php`) — при сейве, импорте и сидинге.
+7. ✅ Деплой-сборка: статика в корень домена (`public/.htaccess` → SPA-фоллбэк + HTTPS), API в `/api/`.
+8. ✅ Эндпоинты `/export` `/import` + UI «Бэкап данных» (выгрузка/восстановление JSON).
+9. ✅ Нативный `confirm` при удалении тренировок и замеров (инлайн-подтверждение убрано).
+10. ✅ Из клиента убраны вшитая `SEED_HISTORY` и кнопка одноразового импорта.
 
 ## Структура
 
@@ -26,13 +29,17 @@ src/
   App.jsx               UI: гейт + 4 вкладки (Обзор/Тренировки/Тело/Прогресс)
   data.js               TEMPLATES, CANON, normSession, метрики, хелперы, тема, CSS
   api.js                доступ к данным: fetch+токен; "local" -> localStorage
+public/.htaccess        корневой .htaccess фронта (SPA-фоллбэк + HTTPS); Vite копирует в dist/
 api/                    PHP-бэкенд (выкладывается в /api на домене)
-  index.php            роутер + эндпоинты sessions/bio
+  index.php            роутер + эндпоинты sessions/bio/export/import
   config.php           конфиг (config.local.php -> env)
   config.local.example.php
-  lib/{Db,Auth,Response}.php
+  lib/{Db,Auth,Response,Canon}.php
   .htaccess
-db/schema.sql           схема MySQL
+db/
+  schema.sql           схема MySQL
+  seed.php             сид истории в БД (CLI), идемпотентно
+  seed-history.json    10 исторических тренировок (источник сида)
 fitness-tracker.jsx     исходный прототип (референс, не в сборке)
 ```
 
@@ -52,11 +59,25 @@ VITE_API_BASE=local npm run dev
 
 Открыть показанный Vite URL, ввести токен (в режиме `local` — любой).
 
-## Сборка
+## Сборка и деплой
 
 ```bash
-npm run build      # -> dist/  (статика в корень домена; api/ кладётся рядом)
+npm run build      # -> dist/  (index.html + assets/ + .htaccess из public/)
 ```
+
+Раскладка на домене (Beget):
+
+```
+<webroot>/
+  index.html, assets/, .htaccess   ← содержимое dist/
+  api/                              ← папка api/ из репозитория
+    config.local.php                ← создать из config.local.example.php (секреты, НЕ в git)
+```
+
+1. Накатить схему: `mysql -u USER -p DBNAME < db/schema.sql` (или через phpMyAdmin).
+2. Засидить историю (один раз, идемпотентно): `php db/seed.php`.
+3. Залить `dist/*` в корень домена, папку `api/` — рядом.
+4. Включить бесплатный SSL Beget — корневой `.htaccess` принудительно редиректит на HTTPS.
 
 ## API (бэкенд-агностичный контракт)
 
@@ -70,6 +91,11 @@ npm run build      # -> dist/  (статика в корень домена; api
 | GET    | `/api/bio`        | список замеров            |
 | POST   | `/api/bio`        | upsert по `date`          |
 | DELETE | `/api/bio/{id}`   | удалить замер             |
+| GET    | `/api/export`     | `{ sessions, bio }` — бэкап |
+| POST   | `/api/import`     | `{ sessions, bio }` — восстановление/миграция (upsert) |
+
+Названия упражнений канонизируются на сервере (`api/lib/Canon.php`) при `POST /sessions`,
+`POST /import` и при сидинге — словарь синонимов зеркалит `src/data.js` (HANDOFF §5).
 
 ## Безопасность
 
