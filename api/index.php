@@ -19,8 +19,9 @@ require __DIR__ . '/lib/Auth.php';
 
 $cfg = require __DIR__ . '/config.php';
 
-// единый перехват фатальных ошибок -> JSON
+// единый перехват фатальных ошибок -> JSON (детали в лог, наружу — generic)
 set_exception_handler(function (Throwable $e) {
+    error_log('[strong-log] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     Response::error('Внутренняя ошибка сервера', 500);
 });
 
@@ -108,6 +109,7 @@ function handleSessions(PDO $pdo, string $method, ?string $id): void
         if (!$id) Response::error('Нужен id', 400);
         $stmt = $pdo->prepare('DELETE FROM sessions WHERE id = :id');
         $stmt->execute([':id' => $id]);
+        if ($stmt->rowCount() === 0) Response::error('Not found', 404);
         Response::noContent();
     }
 
@@ -161,6 +163,7 @@ function handleBio(PDO $pdo, string $method, ?string $id): void
         if (!$id) Response::error('Нужен id', 400);
         $stmt = $pdo->prepare('DELETE FROM bio_entries WHERE id = :id');
         $stmt->execute([':id' => $id]);
+        if ($stmt->rowCount() === 0) Response::error('Not found', 404);
         Response::noContent();
     }
 
@@ -193,5 +196,8 @@ function readJson(): array
 
 function validDate(string $d): bool
 {
-    return (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $d);
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m)) {
+        return false;
+    }
+    return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
 }

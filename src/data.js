@@ -75,7 +75,13 @@ export const BIO_METRICS = [
 /* ---- helpers ---- */
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 export const today = () => new Date().toISOString().slice(0, 10);
-export const fmtDate = (d) => new Date(d).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+// парсим YYYY-MM-DD как локальную дату (new Date("YYYY-MM-DD") трактует строку как UTC
+// и в отрицательных таймзонах сдвигает на предыдущий день)
+export const fmtDate = (d) => {
+  const [y, m, day] = String(d).split("-").map(Number);
+  const dt = (y && m && day) ? new Date(y, m - 1, day) : new Date(d);
+  return dt.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+};
 export const num = (v) => (v === "" || v == null ? null : Number(v));
 
 /* ---- единые названия упражнений (синонимы -> канон) ----

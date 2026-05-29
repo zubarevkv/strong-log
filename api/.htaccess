@@ -16,3 +16,12 @@ RewriteRule ^ index.php [QSA,L]
 <FilesMatch "^(config\.php|config\.local\.php|config\.local\.example\.php)$">
   Require all denied
 </FilesMatch>
+
+# Не отдавать исходники классов и любые .php, кроме фронт-контроллера,
+# а также схемы/доки/дампы, если они вдруг окажутся в webroot
+<FilesMatch "\.(sql|md)$">
+  Require all denied
+</FilesMatch>
+<FilesMatch "^(?!index\.php$).+\.php$">
+  Require all denied
+</FilesMatch>

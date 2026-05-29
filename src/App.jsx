@@ -56,10 +56,12 @@ export default function App() {
   }
   function logout() { auth.clear(); setSessions([]); setBio([]); setStatus("gate"); setGateErr(""); }
 
-  /* ---- мутации через API (per-record upsert/delete) ---- */
+  /* ---- мутации через API (per-record upsert/delete) ----
+   * Берём в стейт объект, который ВЕРНУЛ сервер: при upsert по date/id сервер
+   * может сохранить прежний id, и локальный объект с новым uid() разойдётся с БД. */
   async function addSession(session) {
-    await api.saveSession(session);
-    setSessions((prev) => [normSession(session), ...prev.filter((s) => s.id !== session.id)]);
+    const saved = (await api.saveSession(session)) || session;
+    setSessions((prev) => [normSession(saved), ...prev.filter((s) => s.id !== saved.id)]);
     setSyncErr("");
   }
   async function removeSession(id) {
@@ -68,8 +70,8 @@ export default function App() {
     setSyncErr("");
   }
   async function upsertBio(entry) {
-    await api.saveBio(entry);
-    setBio((prev) => [entry, ...prev.filter((b) => b.id !== entry.id && b.date !== entry.date)]);
+    const saved = (await api.saveBio(entry)) || entry;
+    setBio((prev) => [saved, ...prev.filter((b) => b.id !== saved.id && b.date !== saved.date)]);
     setSyncErr("");
   }
   async function removeBio(id) {
@@ -178,9 +180,10 @@ function Gate({ onAuth, error }) {
 function Home({ sessions, bio, go }) {
   const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
   const last = sorted[0];
-  const weekCount = sessions.filter(
-    (s) => (Date.now() - new Date(s.date)) / 864e5 <= 7
-  ).length;
+  const weekCount = sessions.filter((s) => {
+    const days = (Date.now() - new Date(s.date)) / 864e5;
+    return days >= 0 && days <= 7; // без будущих дат
+  }).length;
   const bioSorted = [...bio].sort((a, b) => b.date.localeCompare(a.date));
   const lb = bioSorted[0], pb = bioSorted[1];
   const delta = (k) => (lb && pb && lb[k] != null && pb[k] != null) ? lb[k] - pb[k] : null;
