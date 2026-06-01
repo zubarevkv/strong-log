@@ -10,6 +10,9 @@ declare(strict_types=1);
  *   GET    /bio               -> [BioEntry]
  *   POST   /bio               <- BioEntry   (upsert по date)
  *   DELETE /bio/{id}
+ *   GET    /templates         -> [Template]
+ *   POST   /templates         <- Template   (upsert по id)
+ *   DELETE /templates/{id}
  * Авторизация: заголовок Authorization: Bearer <TOKEN>.
  */
 
@@ -47,7 +50,7 @@ Auth::require($cfg);
 $resource = $parts[0] ?? '';
 $id       = $parts[1] ?? null;
 
-if ($resource !== 'sessions' && $resource !== 'bio') {
+if ($resource !== 'sessions' && $resource !== 'bio' && $resource !== 'templates') {
     Response::error('Not found', 404);
 }
 
@@ -56,6 +59,8 @@ $pdo = Db::pdo($cfg);
 
 if ($resource === 'sessions') {
     handleSessions($pdo, $method, $id);
+} elseif ($resource === 'templates') {
+    handleTemplates($pdo, $method, $id);
 } else {
     handleBio($pdo, $method, $id);
 }
@@ -107,6 +112,58 @@ function handleSessions(PDO $pdo, string $method, ?string $id): void
     if ($method === 'DELETE') {
         if (!$id) Response::error('Нужен id', 400);
         $stmt = $pdo->prepare('DELETE FROM sessions WHERE id = :id');
+        $stmt->execute([':id' => $id]);
+        Response::noContent();
+    }
+
+    Response::error('Method not allowed', 405);
+}
+
+/* ============================================================
+ * TEMPLATES (пользовательские программы)
+ * ========================================================== */
+function handleTemplates(PDO $pdo, string $method, ?string $id): void
+{
+    if ($method === 'GET') {
+        $rows = $pdo->query('SELECT id, name, sub, data FROM templates ORDER BY updated_at DESC, id DESC')->fetchAll();
+        $out = array_map(function ($r) {
+            return [
+                'id'   => $r['id'],
+                'name' => $r['name'],
+                'sub'  => $r['sub'] ?? '',
+                'ex'   => json_decode($r['data'], true) ?: [],
+            ];
+        }, $rows);
+        Response::json($out);
+    }
+
+    if ($method === 'POST') {
+        $b = readJson();
+        $tid  = trim((string) ($b['id'] ?? ''));
+        $name = trim((string) ($b['name'] ?? ''));
+        $sub  = (string) ($b['sub'] ?? '');
+        $ex   = $b['ex'] ?? null;
+
+        if ($tid === '' || $name === '' || !is_array($ex)) {
+            Response::error('Некорректная программа', 422);
+        }
+        $stmt = $pdo->prepare(
+            'INSERT INTO templates (id, name, sub, data)
+             VALUES (:id, :name, :sub, :data)
+             ON DUPLICATE KEY UPDATE name = VALUES(name), sub = VALUES(sub), data = VALUES(data)'
+        );
+        $stmt->execute([
+            ':id'   => $tid,
+            ':name' => $name,
+            ':sub'  => $sub,
+            ':data' => json_encode($ex, JSON_UNESCAPED_UNICODE),
+        ]);
+        Response::json(['id' => $tid, 'name' => $name, 'sub' => $sub, 'ex' => $ex]);
+    }
+
+    if ($method === 'DELETE') {
+        if (!$id) Response::error('Нужен id', 400);
+        $stmt = $pdo->prepare('DELETE FROM templates WHERE id = :id');
         $stmt->execute([':id' => $id]);
         Response::noContent();
     }

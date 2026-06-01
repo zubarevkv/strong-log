@@ -11,10 +11,12 @@ export const C = {
   blue: "#6fd3ff", pink: "#ff8ab0", danger: "#ff6b5e",
 };
 
-/* ---------- program templates (targets prefill the log form) ---------- */
-export const TEMPLATES = [
+/* ---------- program templates (targets prefill the log form) ----------
+ * Встроенные программы (read-only). Кастомные хранятся в БД/LS той же формы,
+ * но с builtin:false. allTemplates = [...BUILTIN_TEMPLATES, ...custom]. */
+export const BUILTIN_TEMPLATES = [
   {
-    id: "h1t1", name: "Н1 · Т1", sub: "Грудь / спина / руки",
+    id: "h1t1", name: "Н1 · Т1", sub: "Грудь / спина / руки", builtin: true,
     ex: [
       { n: "Выпрыгивания с гантелью", s: [[12,5],[12,5],[12,5],[12,5]] },
       { n: "Жим лёжа", s: [[60,8],[70,5],[70,5,"4–5"],[70,4]] },
@@ -26,7 +28,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: "h1t2", name: "Н1 · Т2", sub: "Ноги / плечи / трицепс",
+    id: "h1t2", name: "Н1 · Т2", sub: "Ноги / плечи / трицепс", builtin: true,
     ex: [
       { n: "Подъёмы на носки сидя", s: [[20,15],[20,15],[25,12]] },
       { n: "Жим гантелей 15°", s: [[22,10],[22,10],[22,10,"9–10"]] },
@@ -38,7 +40,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: "h2t1", name: "Н2 · Т1", sub: "Грудь / спина / руки",
+    id: "h2t1", name: "Н2 · Т1", sub: "Грудь / спина / руки", builtin: true,
     ex: [
       { n: "Гоблет-присед", s: [[26,8],[26,8],[26,8],[26,8]] },
       { n: "Жим гантелей 15°", s: [[22,10],[24,8],[24,8]] },
@@ -50,7 +52,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: "h2t2", name: "Н2 · Т2", sub: "Ноги / плечи / руки",
+    id: "h2t2", name: "Н2 · Т2", sub: "Ноги / плечи / руки", builtin: true,
     ex: [
       { n: "Подъёмы на носки сидя", s: [[20,15],[25,12],[25,12]] },
       { n: "Жим в тренажёре на грудь (1 рука)", s: [[30,10],[30,10],[32.5,9,"8–10"]] },
@@ -290,6 +292,21 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-select-wrap{position:relative;flex:1;min-width:0;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
+
+/* program editor (фичи #2) */
+.ft-prog-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.ft-prog-btn{display:inline-flex;align-items:center;gap:5px;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
+.ft-prog-btn:hover{border-color:${C.accent};color:${C.accent};}
+.ft-prog-overlay{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;padding:max(24px,env(safe-area-inset-top)) 12px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.ft-prog-editor{background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:14px;width:100%;max-width:560px;margin:auto 0;}
+.ft-prog-head{margin-bottom:12px;}
+.ft-prog-head strong{font-family:'Bricolage Grotesque',sans-serif;font-size:16px;}
+.ft-prog-list{display:flex;flex-direction:column;gap:8px;}
+.ft-prog-item{display:flex;align-items:center;justify-content:space-between;gap:8px;background:${C.bg};border:1px solid ${C.line};border-radius:10px;padding:9px 11px;}
+.ft-prog-form{display:flex;flex-direction:column;gap:10px;}
+.ft-prog-ex{padding:11px 12px 10px;margin-bottom:0;background:${C.bg};}
+.ft-prog-ex .ft-ex-h{gap:8px;}
+.ft-prog-ex .ft-ex-h .ft-input{flex:1;}
 
 /* token gate */
 .ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));overflow:hidden;}
