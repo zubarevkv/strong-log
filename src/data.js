@@ -416,6 +416,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 /* авто-прогрессия чип (фичи #3) */
 .ft-progress-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin:-2px 0 9px;padding:5px 9px;background:rgba(200,242,63,.1);border:1px solid ${C.accent2};color:${C.accent};border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;overflow:hidden;}
 .ft-progress-chip:hover{background:rgba(200,242,63,.18);}
+.ft-progress-chip.done{background:rgba(200,242,63,.22);border-color:${C.accent};}
 .ft-progress-chip .ft-muted{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 /* program editor (фичи #2) */

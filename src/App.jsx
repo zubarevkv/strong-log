@@ -316,6 +316,9 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const [editingId, setEditingId] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
+  const [bumpedEi, setBumpedEi] = useState(null);
+  const bumpTimer = useRef(null);
+  useEffect(() => () => clearTimeout(bumpTimer.current), []);
 
   const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const lastDates = useMemo(() => {
@@ -358,6 +361,10 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       }));
       return c;
     });
+    // кратковременная индикация «применено», чтобы не нажать дважды случайно
+    setBumpedEi(ei);
+    clearTimeout(bumpTimer.current);
+    bumpTimer.current = setTimeout(() => setBumpedEi(null), 1000);
   }
 
   function pick(id) {
@@ -500,10 +507,15 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
             </button>
           </div>
           {exMeta[e.n]?.lastText && (
-            <button className="ft-progress-chip" onClick={() => bumpWeights(ei, exMeta[e.n].step)}
+            <button className={"ft-progress-chip" + (bumpedEi === ei ? " done" : "")}
+              onClick={() => bumpWeights(ei, exMeta[e.n].step)}
               title={`Прибавить ${exMeta[e.n].step} кг ко всем подходам`}>
-              <ArrowUp size={12} /> +{exMeta[e.n].step} кг
-              <span className="ft-muted">· в прошлый раз {exMeta[e.n].lastText}</span>
+              {bumpedEi === ei ? (
+                <><Check size={12} /> применено</>
+              ) : (
+                <><ArrowUp size={12} /> +{exMeta[e.n].step} кг
+                <span className="ft-muted">· в прошлый раз {exMeta[e.n].lastText}</span></>
+              )}
             </button>
           )}
           {BW_EXERCISES.has(e.n) && (
