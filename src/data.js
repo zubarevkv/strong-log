@@ -179,6 +179,31 @@ export function sessionVolume(session, bio) {
   return session.exercises.reduce((v, e) => v + exerciseVolume(e, bw), 0);
 }
 
+/* ---- личные рекорды (графики #1) ----
+ * Идём по сессиям по возрастанию даты, ведём best[canon] = макс. эфф. нагрузка.
+ * Рекорд засчитываем только если ранее уже был best и текущий top строго его
+ * превышает (первое появление упражнения рекордом не считаем). */
+export function prSessionMap(sessions, bio) {
+  const out = new Map();
+  const best = {};
+  const sorted = [...(sessions || [])].sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
+  );
+  for (const s of sorted) {
+    const bw = bodyweightOn(bio, s.date);
+    const prs = [];
+    for (const e of s.exercises) {
+      const cn = canon(e.n);
+      const top = exerciseTop(e, bw);
+      if (!top) continue;
+      if (best[cn] == null) { best[cn] = top; continue; }
+      if (top > best[cn]) { best[cn] = top; prs.push(e.n); }
+    }
+    if (prs.length) out.set(s.id, prs);
+  }
+  return out;
+}
+
 /* ---- авто-прогрессия нагрузки (фичи #3) ---- */
 // шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
 const LEG_RE = /присед|носк|ног|выпад|гоблет|икр/i;
@@ -338,6 +363,9 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-select-wrap{position:relative;flex:1;min-width:0;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
+
+/* бейдж личного рекорда (графики #1) */
+.ft-pr{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;color:${C.accent};background:rgba(200,242,63,.12);border:1px solid ${C.accent2};border-radius:6px;padding:1px 4px;}
 
 /* авто-прогрессия чип (фичи #3) */
 .ft-progress-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin:-2px 0 9px;padding:5px 9px;background:rgba(200,242,63,.1);border:1px solid ${C.accent2};color:${C.accent};border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;overflow:hidden;}

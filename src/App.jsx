@@ -6,14 +6,14 @@ import {
 import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
   Plus, Trash2, Check, X, ChevronDown, ChevronUp, Flame, ArrowUp, ArrowDown,
-  LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus,
+  LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus, Trophy,
 } from "lucide-react";
 
 import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
-  suggestForm, exerciseMeta,
+  suggestForm, exerciseMeta, prSessionMap,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -198,6 +198,7 @@ function Gate({ onAuth, error }) {
 /* ---------------------------- OVERVIEW ---------------------------- */
 function Home({ sessions, bio, go, templates }) {
   const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
+  const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const last = sorted[0];
   const weekCount = sessions.filter(
     (s) => (Date.now() - new Date(s.date)) / 864e5 <= 7
@@ -220,7 +221,14 @@ function Home({ sessions, bio, go, templates }) {
         {last ? (
           <>
             <div className="ft-row" style={{ marginBottom: 10 }}>
-              <strong>{templates.find((t) => t.id === last.templateId)?.name || "Тренировка"}</strong>
+              <span className="ft-row" style={{ justifyContent: "flex-start", gap: 6 }}>
+                <strong>{templates.find((t) => t.id === last.templateId)?.name || "Тренировка"}</strong>
+                {prMap.get(last.id) && (
+                  <span className="ft-pr" title={"Личный рекорд: " + prMap.get(last.id).join(", ")}>
+                    <Trophy size={13} />
+                  </span>
+                )}
+              </span>
               <span className="ft-muted ft-mono">{fmtDate(last.date)}</span>
             </div>
             {(() => {
@@ -305,6 +313,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
 
+  const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const lastDates = useMemo(() => {
     const m = {};
     sessions.forEach((s) => { if (!m[s.templateId] || s.date > m[s.templateId]) m[s.templateId] = s.date; });
@@ -551,6 +560,12 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
                 <div className="ft-row">
                   <div>
                     <strong>{tpl?.name || "Тренировка"}</strong>
+                    {prMap.get(s.id) && (
+                      <span className="ft-pr" style={{ marginLeft: 6 }}
+                        title={"Личный рекорд: " + prMap.get(s.id).join(", ")}>
+                        <Trophy size={13} />
+                      </span>
+                    )}
                     <span className="ft-muted ft-mini" style={{ marginLeft: 8 }}>{fmtDate(s.date)}</span>
                   </div>
                   <div className="ft-row" style={{ gap: 10 }}>
