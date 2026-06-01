@@ -102,6 +102,55 @@ export const CANON = {
 };
 export const canon = (n) => CANON[n] || n;
 
+/* ---- расчёт объёма / нагрузки ----
+ * Для упражнений с весом тела (подтягивания, брусья) рабочая нагрузка
+ * считается от веса тела: помощь вводится как ПОЛОЖИТЕЛЬНОЕ число (уменьшает
+ * нагрузку), утяжелитель — как ОТРИЦАТЕЛЬНОЕ (увеличивает).
+ *   эфф.нагрузка = вес_тела − введённое_значение
+ * Вес тела берётся из ближайшего замера состава тела. */
+export const BW_EXERCISES = new Set(["Подтягивания", "Брусья"]);
+
+export function bodyweightOn(bio, date) {
+  const withW = (bio || []).filter((b) => b && b.weight != null);
+  if (!withW.length) return null;
+  const t = new Date(date).getTime();
+  let best = null, bestDiff = Infinity;
+  for (const b of withW) {
+    const d = Math.abs(new Date(b.date).getTime() - t);
+    if (d < bestDiff) { bestDiff = d; best = b; }
+  }
+  return best ? Number(best.weight) : null;
+}
+
+// эффективная нагрузка одного подхода (кг); null — если объём посчитать нельзя
+export function setLoad(set, exName, bw) {
+  const w = num(set.weight) || 0;
+  if (BW_EXERCISES.has(exName)) {
+    if (bw == null) return null;
+    return Math.max(0, bw - w);
+  }
+  return w;
+}
+
+export function exerciseVolume(ex, bw) {
+  return ex.sets.reduce((v, s) => {
+    const load = setLoad(s, ex.n, bw);
+    return load == null ? v : v + load * (num(s.reps) || 0);
+  }, 0);
+}
+
+export function exerciseTop(ex, bw) {
+  return ex.sets.reduce((m, s) => {
+    const load = setLoad(s, ex.n, bw);
+    return load == null ? m : Math.max(m, load);
+  }, 0);
+}
+
+export function sessionVolume(session, bio) {
+  const bw = bodyweightOn(bio, session.date);
+  return session.exercises.reduce((v, e) => v + exerciseVolume(e, bw), 0);
+}
+
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
 export function normSession(s) {
   const map = new Map();
@@ -168,6 +217,10 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-toast{display:flex;align-items:center;gap:7px;margin-top:10px;padding:9px 12px;background:rgba(200,242,63,.12);border:1px solid ${C.accent};color:${C.accent};border-radius:9px;font-size:13px;font-weight:600;animation:ft-pop .25s ease;}
 @keyframes ft-pop{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 .ft-confirm-del{background:${C.danger};color:#fff;border:none;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;}
+.ft-edit-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px;padding:8px 12px;background:rgba(111,211,255,.1);border:1px solid ${C.blue};color:${C.blue};border-radius:9px;font-weight:600;}
+.ft-edit-bar span{display:flex;align-items:center;gap:6px;}
+.ft-edit-bar .ft-icon-b{color:${C.blue};}
+.ft-bw-hint{margin:-2px 0 9px;line-height:1.35;}
 
 .ft-datebar{justify-content:flex-start;gap:10px;margin-bottom:10px;}
 .ft-input{background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:7px 9px;font-size:14px;width:100%;outline:none;transition:.12s;}
