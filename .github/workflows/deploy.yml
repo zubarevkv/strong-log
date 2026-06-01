@@ -1,0 +1,68 @@
+name: Deploy to Beget
+
+# Собирает фронт (Vite) и заливает на Beget по SSH/rsync.
+# dist/ -> корень домена, api/ -> <корень>/api.
+# Триггер — push в продакшен-ветку (поменяй на свою, например main).
+
+on:
+  push:
+    branches: [claude/fitness-tracking-app-zMTWe]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-beget
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install & build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.BEGET_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "${{ secrets.BEGET_SSH_PORT || '22' }}" "${{ secrets.BEGET_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy frontend assets (mirror with cleanup)
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            dist/assets/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/assets/"
+
+      - name: Deploy frontend root files (overlay, no delete)
+        run: |
+          rsync -az --exclude 'assets' \
+            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            dist/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/"
+
+      - name: Deploy backend (api -> public_html/api)
+        run: |
+          rsync -az --delete \
+            --exclude 'config.local.php' \
+            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            api/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/api/"
+
+      - name: Deploy DB migrations (db -> public_html/db)
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            db/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/db/"
+
+      - name: Apply DB migrations (idempotent, over SSH)
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}" \
+            "${{ secrets.BEGET_PHP || 'php' }} ${{ secrets.BEGET_PATH }}/api/migrate.php"

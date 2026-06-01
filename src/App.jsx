@@ -6,12 +6,13 @@ import {
 import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
   Plus, Trash2, Check, X, ChevronDown, ChevronUp, Flame, ArrowUp, ArrowDown,
-  LogOut, KeyRound, CloudOff,
+  LogOut, KeyRound, CloudOff, Pencil,
 } from "lucide-react";
 
 import {
-  C, TEMPLATES, BIO_METRICS, CSS,
+  C, TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   canon, normSession, uid, today, fmtDate, num,
+  BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -130,7 +131,7 @@ export default function App() {
 
       <main className="ft-main">
         {tab === "home" && <Home sessions={sessions} bio={bio} go={setTab} />}
-        {tab === "log" && <Log sessions={sessions} addSession={addSession} removeSession={removeSession} onErr={setSyncErr} />}
+        {tab === "log" && <Log sessions={sessions} bio={bio} addSession={addSession} removeSession={removeSession} onErr={setSyncErr} />}
         {tab === "body" && <Body bio={bio} upsertBio={upsertBio} removeBio={removeBio} onErr={setSyncErr} />}
         {tab === "progress" && <Progress sessions={sessions} bio={bio} />}
       </main>
@@ -202,18 +203,21 @@ function Home({ sessions, bio, go }) {
               <strong>{TEMPLATES.find((t) => t.id === last.templateId)?.name || "Тренировка"}</strong>
               <span className="ft-muted ft-mono">{fmtDate(last.date)}</span>
             </div>
-            {last.exercises.slice(0, 7).map((e, i) => {
-              const top = e.sets.reduce((m, s) => Math.max(m, num(s.weight) || 0), 0);
-              const vol = e.sets.reduce((v, s) => v + (num(s.weight) || 0) * (num(s.reps) || 0), 0);
-              return (
-                <div key={i} className="ft-row ft-mini">
-                  <span className="ft-trunc">{e.n}</span>
-                  <span className="ft-mono ft-muted">
-                    {top ? top + " кг" : "св.вес"}{vol ? " · " + Math.round(vol) + " об." : ""}
-                  </span>
-                </div>
-              );
-            })}
+            {(() => {
+              const bw = bodyweightOn(bio, last.date);
+              return last.exercises.slice(0, 7).map((e, i) => {
+                const top = exerciseTop(e, bw);
+                const vol = exerciseVolume(e, bw);
+                return (
+                  <div key={i} className="ft-row ft-mini">
+                    <span className="ft-trunc">{e.n}</span>
+                    <span className="ft-mono ft-muted">
+                      {top ? top + " кг" : "св.вес"}{vol ? " · " + Math.round(vol) + " об." : ""}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
           </>
         ) : (
           <button className="ft-btn" onClick={() => go("log")}>
@@ -269,7 +273,7 @@ function Stat({ label, value, accent, trend, invert }) {
 }
 
 /* ---------------------------- LOG ---------------------------- */
-function Log({ sessions, addSession, removeSession, onErr }) {
+function Log({ sessions, bio, addSession, removeSession, onErr }) {
   const [tplId, setTplId] = useState(TEMPLATES[0].id);
   const [date, setDate] = useState(today());
   const [form, setForm] = useState(() => initForm(TEMPLATES[0]));
@@ -277,6 +281,7 @@ function Log({ sessions, addSession, removeSession, onErr }) {
   const [toast, setToast] = useState("");
   const [confirmId, setConfirmId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   const lastDates = useMemo(() => {
     const m = {};
@@ -294,6 +299,25 @@ function Log({ sessions, addSession, removeSession, onErr }) {
   function pick(id) {
     setTplId(id);
     setForm(initForm(TEMPLATES.find((t) => t.id === id)));
+    setEditingId(null);
+  }
+  function startEdit(s) {
+    setEditingId(s.id);
+    setTplId(s.templateId);
+    setDate(s.date);
+    setForm(s.exercises.map((e) => ({
+      n: e.n,
+      sets: e.sets.map((x) => ({ weight: x.weight ?? "", reps: x.reps ?? "", hint: x.hint ?? "" })),
+    })));
+    setOpenHist(false);
+    setConfirmId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    const tpl = TEMPLATES.find((t) => t.id === tplId) || TEMPLATES[0];
+    setTplId(tpl.id);
+    setForm(initForm(tpl));
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -324,7 +348,7 @@ function Log({ sessions, addSession, removeSession, onErr }) {
     if (saving) return;
     const tpl = TEMPLATES.find((t) => t.id === tplId);
     const session = {
-      id: uid(), date, templateId: tplId,
+      id: editingId || uid(), date, templateId: tplId,
       exercises: form.map((e) => ({
         n: e.n,
         sets: e.sets
@@ -334,11 +358,13 @@ function Log({ sessions, addSession, removeSession, onErr }) {
     };
     if (!session.exercises.length) { flash("Заполни хотя бы один подход"); return; }
     setSaving(true);
+    const wasEditing = !!editingId;
     try {
       await addSession(session);
       setForm(initForm(tpl));
+      setEditingId(null);
       setOpenHist(true);
-      flash(`${tpl.name} сохранена — ${fmtDate(date)}`);
+      flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
     } catch (e) {
       onErr(e.message || "Не удалось сохранить");
       flash("Ошибка сохранения");
@@ -387,9 +413,14 @@ function Log({ sessions, addSession, removeSession, onErr }) {
               <Trash2 size={15} />
             </button>
           </div>
+          {BW_EXERCISES.has(e.n) && (
+            <div className="ft-mini ft-muted ft-bw-hint">
+              Вес тела учитывается автоматически. Помощь — со знаком «+», утяжелитель — со знаком «−».
+            </div>
+          )}
           <div className="ft-sets">
             <div className="ft-set ft-set-head ft-mini ft-muted">
-              <span>#</span><span>кг</span><span>повт.</span><span></span>
+              <span>#</span><span>{BW_EXERCISES.has(e.n) ? "помощь+/утяж−" : "кг"}</span><span>повт.</span><span></span>
             </div>
             {e.sets.map((s, si) => (
               <div key={si} className="ft-set">
@@ -412,8 +443,16 @@ function Log({ sessions, addSession, removeSession, onErr }) {
         </div>
       ))}
 
+      {editingId && (
+        <div className="ft-edit-bar ft-mini">
+          <span><Pencil size={13} /> Редактирование тренировки от {fmtDate(date)}</span>
+          <button className="ft-icon-b" onClick={cancelEdit} title="Отменить редактирование">
+            <X size={15} />
+          </button>
+        </div>
+      )}
       <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
-        <Check size={17} /> {saving ? "Сохранение…" : "Сохранить тренировку"}
+        <Check size={17} /> {saving ? "Сохранение…" : editingId ? "Сохранить изменения" : "Сохранить тренировку"}
       </button>
       {toast && (
         <div className="ft-toast"><Check size={15} /> {toast}</div>
@@ -427,8 +466,7 @@ function Log({ sessions, addSession, removeSession, onErr }) {
           {sorted.length === 0 && <div className="ft-muted ft-mini" style={{ padding: 8 }}>Пока пусто.</div>}
           {sorted.map((s) => {
             const tpl = TEMPLATES.find((t) => t.id === s.templateId);
-            const totalVol = s.exercises.reduce((v, e) =>
-              v + e.sets.reduce((vv, x) => vv + (num(x.weight) || 0) * (num(x.reps) || 0), 0), 0);
+            const totalVol = sessionVolume(s, bio);
             return (
               <div key={s.id} className="ft-card ft-hist">
                 <div className="ft-row">
@@ -446,9 +484,14 @@ function Log({ sessions, addSession, removeSession, onErr }) {
                         </button>
                       </span>
                     ) : (
-                      <button className="ft-icon-b" onClick={() => setConfirmId(s.id)} title="Удалить тренировку">
-                        <Trash2 size={14} />
-                      </button>
+                      <span className="ft-row" style={{ gap: 2 }}>
+                        <button className="ft-icon-b" onClick={() => startEdit(s)} title="Редактировать тренировку">
+                          <Pencil size={14} />
+                        </button>
+                        <button className="ft-icon-b" onClick={() => setConfirmId(s.id)} title="Удалить тренировку">
+                          <Trash2 size={14} />
+                        </button>
+                      </span>
                     )}
                   </div>
                 </div>
@@ -481,24 +524,42 @@ function initForm(tpl) {
 
 /* ---------------------------- BODY (bioimpedance) ---------------------------- */
 function Body({ bio, upsertBio, removeBio, onErr }) {
-  const empty = { date: today(), weight: "", fat: "", muscle: "", water: "", visceral: "", bone: "", note: "" };
-  const [f, setF] = useState(empty);
+  const blank = () => {
+    const o = { date: today(), note: "" };
+    BIO_METRICS.forEach((m) => { o[m.k] = ""; });
+    return o;
+  };
+  const [f, setF] = useState(blank);
+  const [segs, setSegs] = useState({});
   const [toast, setToast] = useState("");
   const [confirmId, setConfirmId] = useState(null);
   const [saving, setSaving] = useState(false);
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2400); }
+  function setSeg(segK, fieldK, val) {
+    setSegs((p) => ({ ...p, [segK]: { ...(p[segK] || {}), [fieldK]: val } }));
+  }
 
   async function commit() {
     if (saving) return;
-    if (Object.keys(empty).every((k) => k === "date" || k === "note" ? false : f[k] === "")) {
-      flash("Заполни хотя бы одно поле"); return;
-    }
+    const anyMetric = BIO_METRICS.some((m) => f[m.k] !== "");
+    const anySeg = Object.values(segs).some((row) => row && Object.values(row).some((v) => v !== "" && v != null));
+    if (!anyMetric && !anySeg) { flash("Заполни хотя бы одно поле"); return; }
     const entry = { id: uid(), date: f.date, note: f.note };
     BIO_METRICS.forEach((m) => { entry[m.k] = num(f[m.k]); });
+    const segData = {};
+    SEGMENTS.forEach((s) => {
+      const row = segs[s.k] || {};
+      if (SEG_FIELDS.some((sf) => row[sf.k] !== "" && row[sf.k] != null)) {
+        segData[s.k] = {};
+        SEG_FIELDS.forEach((sf) => { segData[s.k][sf.k] = num(row[sf.k]); });
+      }
+    });
+    if (Object.keys(segData).length) entry.segments = segData;
     setSaving(true);
     try {
       await upsertBio(entry);
-      setF(empty);
+      setF(blank());
+      setSegs({});
       flash(`Замер сохранён — ${fmtDate(entry.date)}`);
     } catch (e) {
       onErr(e.message || "Не удалось сохранить");
@@ -533,14 +594,41 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
             </label>
           ))}
         </div>
-        <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
-          <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
-        </button>
-        {toast && <div className="ft-toast"><Check size={15} /> {toast}</div>}
         <div className="ft-mini ft-muted" style={{ marginTop: 8 }}>
           Замер на ту же дату перезапишется.
         </div>
       </div>
+
+      <div className="ft-card">
+        <div className="ft-card-h">Анализ по сегментам</div>
+        <div className="ft-mini ft-muted" style={{ marginBottom: 10 }}>
+          Мышцы и жир по конечностям и туловищу. Необязательно — заполняй, если есть данные.
+        </div>
+        <div className="ft-seg-table">
+          <div className="ft-seg-trow ft-seg-thead ft-mini ft-muted">
+            <span></span>
+            {SEG_FIELDS.map((sf) => (
+              <span key={sf.k} style={{ color: sf.color }}>{sf.label}<br />{sf.unit}</span>
+            ))}
+          </div>
+          {SEGMENTS.map((s) => (
+            <div key={s.k} className="ft-seg-trow">
+              <span className="ft-mini">{s.label}</span>
+              {SEG_FIELDS.map((sf) => (
+                <input key={sf.k} className="ft-input ft-mono ft-seg-in" type="number"
+                  inputMode="decimal" placeholder="—"
+                  value={(segs[s.k] && segs[s.k][sf.k]) ?? ""}
+                  onChange={(e) => setSeg(s.k, sf.k, e.target.value)} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
+        <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
+      </button>
+      {toast && <div className="ft-toast"><Check size={15} /> {toast}</div>}
 
       {sorted.map((b) => (
         <div key={b.id} className="ft-card ft-hist">
@@ -569,6 +657,26 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
               </div>
             ))}
           </div>
+          {b.segments && Object.keys(b.segments).length > 0 && (
+            <div className="ft-seg-table" style={{ marginTop: 10 }}>
+              <div className="ft-seg-trow ft-seg-thead ft-mini ft-muted">
+                <span>Сегмент</span>
+                {SEG_FIELDS.map((sf) => (
+                  <span key={sf.k} style={{ color: sf.color }}>{sf.label}<br />{sf.unit}</span>
+                ))}
+              </div>
+              {SEGMENTS.map((s) => b.segments[s.k] && (
+                <div key={s.k} className="ft-seg-trow">
+                  <span className="ft-mini">{s.label}</span>
+                  {SEG_FIELDS.map((sf) => (
+                    <span key={sf.k} className="ft-mono ft-mini" style={{ textAlign: "center" }}>
+                      {b.segments[s.k][sf.k] ?? "—"}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -584,7 +692,7 @@ function Progress({ sessions, bio }) {
   }, [sessions]);
 
   const [ex, setEx] = useState("");
-  const [metric, setMetric] = useState("volume");
+  const [metric, setMetric] = useState("top");
   const [bioMetric, setBioMetric] = useState("weight");
 
   useEffect(() => { if (!ex && exNames.length) setEx(exNames[0]); }, [exNames, ex]);
@@ -595,12 +703,20 @@ function Progress({ sessions, bio }) {
       .filter((s) => s.exercises.some((e) => e.n === ex))
       .map((s) => {
         const e = s.exercises.find((x) => x.n === ex);
-        const vol = e.sets.reduce((v, x) => v + (num(x.weight) || 0) * (num(x.reps) || 0), 0);
-        const top = e.sets.reduce((m, x) => Math.max(m, num(x.weight) || 0), 0);
-        return { date: s.date, label: fmtDate(s.date), volume: Math.round(vol), top };
+        const bw = bodyweightOn(bio, s.date);
+        return {
+          date: s.date, label: fmtDate(s.date),
+          volume: Math.round(exerciseVolume(e, bw)), top: exerciseTop(e, bw),
+        };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [ex, sessions]);
+  }, [ex, sessions, bio]);
+
+  const volData = useMemo(() =>
+    [...sessions]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((s) => ({ label: fmtDate(s.date), v: Math.round(sessionVolume(s, bio)) })),
+    [sessions, bio]);
 
   const bioData = useMemo(() =>
     [...bio].filter((b) => b[bioMetric] != null)
@@ -631,8 +747,17 @@ function Progress({ sessions, bio }) {
               </div>
             </div>
             <Chart data={exData} dataKey={metric} color={C.accent}
-              unit={metric === "top" ? "кг" : ""} type="bar" />
+              unit={metric === "top" ? "кг" : ""} type="line" />
           </>
+        )}
+      </div>
+
+      <div className="ft-card">
+        <div className="ft-card-h">Объём по тренировкам</div>
+        {sessions.length === 0 ? (
+          <div className="ft-muted ft-mini">Запиши тренировку, чтобы увидеть график.</div>
+        ) : (
+          <Chart data={volData} dataKey="v" color={C.accent2} unit="об." type="line" />
         )}
       </div>
 

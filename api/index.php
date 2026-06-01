@@ -119,17 +119,11 @@ function handleSessions(PDO $pdo, string $method, ?string $id): void
  * ========================================================== */
 function handleBio(PDO $pdo, string $method, ?string $id): void
 {
-    $metrics = ['weight', 'fat', 'muscle', 'water', 'visceral', 'bone'];
+    $metrics = ['weight', 'fat', 'muscle', 'water', 'visceral', 'bone', 'protein', 'minerals', 'bmi'];
 
     if ($method === 'GET') {
         $rows = $pdo->query('SELECT * FROM bio_entries ORDER BY date DESC')->fetchAll();
-        $out = array_map(function ($r) use ($metrics) {
-            $o = ['id' => $r['id'], 'date' => $r['date'], 'note' => $r['note'] ?? ''];
-            foreach ($metrics as $m) {
-                $o[$m] = $r[$m] === null ? null : (float) $r[$m];
-            }
-            return $o;
-        }, $rows);
+        $out = array_map(fn ($r) => bioRow($r, $metrics), $rows);
         Response::json($out);
     }
 
@@ -140,18 +134,37 @@ function handleBio(PDO $pdo, string $method, ?string $id): void
         if ($bid === '' || !validDate($date)) {
             Response::error('Некорректный замер', 422);
         }
-        $vals = [':id' => $bid, ':date' => $date, ':note' => (string) ($b['note'] ?? '')];
-        foreach ($metrics as $m) {
+        // учитываем только реально существующие колонки: если migration_002
+        // ещё не накатана, новые метрики/segments просто пропускаются, а не
+        // роняют весь запрос.
+        $existing = bioColumns($pdo);
+        $vals = [
+            ':id' => $bid,
+            ':date' => $date,
+            ':note' => (string) ($b['note'] ?? ''),
+        ];
+        $fixed = ['id', 'date', 'note'];
+        if (in_array('segments', $existing, true)) {
+            $vals[':segments'] = (isset($b['segments']) && is_array($b['segments']) && $b['segments'])
+                ? json_encode($b['segments'], JSON_UNESCAPED_UNICODE) : null;
+            $fixed[] = 'segments';
+        }
+        $activeMetrics = array_values(array_filter($metrics, fn ($m) => in_array($m, $existing, true)));
+        foreach ($activeMetrics as $m) {
             $vals[':' . $m] = (isset($b[$m]) && $b[$m] !== null && $b[$m] !== '') ? (float) $b[$m] : null;
         }
+        // динамический список колонок: фикс. + доступные метрики
+        $cols = array_merge($fixed, $activeMetrics);
+        $colList = implode(', ', $cols);
+        $phList = implode(', ', array_map(fn ($c) => ':' . $c, $cols));
+        $updList = implode(', ', array_map(
+            fn ($c) => "$c = VALUES($c)",
+            array_filter($cols, fn ($c) => $c !== 'id' && $c !== 'date')
+        ));
         // upsert по уникальной дате (один замер в день) либо по id
         $stmt = $pdo->prepare(
-            'INSERT INTO bio_entries (id, date, weight, fat, muscle, water, visceral, bone, note)
-             VALUES (:id, :date, :weight, :fat, :muscle, :water, :visceral, :bone, :note)
-             ON DUPLICATE KEY UPDATE
-               weight = VALUES(weight), fat = VALUES(fat), muscle = VALUES(muscle),
-               water = VALUES(water), visceral = VALUES(visceral), bone = VALUES(bone),
-               note = VALUES(note)'
+            "INSERT INTO bio_entries ($colList) VALUES ($phList)
+             ON DUPLICATE KEY UPDATE $updList"
         );
         $stmt->execute($vals);
         Response::json(bioById($pdo, $date, $metrics));
@@ -172,11 +185,26 @@ function bioById(PDO $pdo, string $date, array $metrics): array
     $stmt = $pdo->prepare('SELECT * FROM bio_entries WHERE date = :date');
     $stmt->execute([':date' => $date]);
     $r = $stmt->fetch();
-    if (!$r) return [];
+    return $r ? bioRow($r, $metrics) : [];
+}
+
+// имена колонок таблицы bio_entries (кэшируется на время запроса)
+function bioColumns(PDO $pdo): array
+{
+    static $cols = null;
+    if ($cols === null) {
+        $cols = $pdo->query('SHOW COLUMNS FROM bio_entries')->fetchAll(PDO::FETCH_COLUMN);
+    }
+    return $cols;
+}
+
+function bioRow(array $r, array $metrics): array
+{
     $o = ['id' => $r['id'], 'date' => $r['date'], 'note' => $r['note'] ?? ''];
     foreach ($metrics as $m) {
-        $o[$m] = $r[$m] === null ? null : (float) $r[$m];
+        $o[$m] = (!array_key_exists($m, $r) || $r[$m] === null) ? null : (float) $r[$m];
     }
+    $o['segments'] = (!empty($r['segments'])) ? json_decode($r['segments'], true) : null;
     return $o;
 }
 

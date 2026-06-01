@@ -18,9 +18,13 @@ CREATE TABLE IF NOT EXISTS bio_entries (
   weight     DECIMAL(5,1),
   fat        DECIMAL(4,1),
   muscle     DECIMAL(5,1),
-  water      DECIMAL(4,1),
+  water      DECIMAL(4,1),                    -- литры (ранее в UI отображались %)
   visceral   DECIMAL(4,1),
-  bone       DECIMAL(4,1),
+  bone       DECIMAL(4,1),                    -- безжировая масса, кг (ранее «кости»)
+  protein    DECIMAL(5,1),
+  minerals   DECIMAL(5,1),
+  bmi        DECIMAL(4,1),
+  segments   TEXT,                            -- JSON: посегментный анализ (мышцы/жир, кг и %)
   note       TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

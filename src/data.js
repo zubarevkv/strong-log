@@ -67,9 +67,27 @@ export const BIO_METRICS = [
   { k: "weight", label: "Вес", unit: "кг", color: C.accent },
   { k: "fat", label: "Жир", unit: "%", color: C.pink },
   { k: "muscle", label: "Мышцы", unit: "кг", color: C.blue },
-  { k: "water", label: "Вода", unit: "%", color: "#7fe0c0" },
+  { k: "water", label: "Вода", unit: "л", color: "#7fe0c0" },
   { k: "visceral", label: "Висц. жир", unit: "", color: "#ffb347" },
-  { k: "bone", label: "Кости", unit: "кг", color: "#b6a8ff" },
+  { k: "bone", label: "Безжировая масса", unit: "кг", color: "#b6a8ff" },
+  { k: "protein", label: "Белок", unit: "кг", color: "#ff9e7a" },
+  { k: "minerals", label: "Минералы", unit: "кг", color: "#9ad0c2" },
+  { k: "bmi", label: "ИМТ", unit: "", color: "#d3c0ff" },
+];
+
+/* ---- сегментный анализ тела (п.12) ---- */
+export const SEGMENTS = [
+  { k: "larm", label: "Левая рука" },
+  { k: "rarm", label: "Правая рука" },
+  { k: "lleg", label: "Левая нога" },
+  { k: "rleg", label: "Правая нога" },
+  { k: "trunk", label: "Туловище" },
+];
+export const SEG_FIELDS = [
+  { k: "muscleKg", label: "Мышцы", unit: "кг", color: C.blue },
+  { k: "musclePct", label: "Мышцы", unit: "%", color: C.blue },
+  { k: "fatKg", label: "Жир", unit: "кг", color: C.pink },
+  { k: "fatPct", label: "Жир", unit: "%", color: C.pink },
 ];
 
 /* ---- helpers ---- */
@@ -102,6 +120,63 @@ export const CANON = {
 };
 export const canon = (n) => CANON[n] || n;
 
+/* ---- расчёт объёма / нагрузки ----
+ * Для упражнений с весом тела (подтягивания, брусья) рабочая нагрузка
+ * считается от веса тела: помощь вводится как ПОЛОЖИТЕЛЬНОЕ число (уменьшает
+ * нагрузку), утяжелитель — как ОТРИЦАТЕЛЬНОЕ (увеличивает).
+ *   эфф.нагрузка = вес_тела − введённое_значение
+ * Вес тела берётся из ближайшего замера состава тела. */
+export const BW_EXERCISES = new Set(["Подтягивания", "Брусья"]);
+
+export function bodyweightOn(bio, date) {
+  const withW = (bio || []).filter((b) => b && b.weight != null);
+  if (!withW.length) return null;
+  const t = new Date(date).getTime();
+  // предпочитаем ближайший замер НЕ ПОЗЖЕ тренировки (вес на тот момент);
+  // более поздний берём только если прошлых замеров нет.
+  let past = null, pastDiff = Infinity;
+  let future = null, futureDiff = Infinity;
+  for (const b of withW) {
+    const diff = new Date(b.date).getTime() - t;
+    if (diff <= 0) {
+      if (-diff < pastDiff) { pastDiff = -diff; past = b; }
+    } else if (diff < futureDiff) {
+      futureDiff = diff; future = b;
+    }
+  }
+  const best = past || future;
+  return best ? Number(best.weight) : null;
+}
+
+// эффективная нагрузка одного подхода (кг); null — если объём посчитать нельзя
+export function setLoad(set, exName, bw) {
+  const w = num(set.weight) || 0;
+  if (BW_EXERCISES.has(exName)) {
+    if (bw == null) return null;
+    return Math.max(0, bw - w);
+  }
+  return w;
+}
+
+export function exerciseVolume(ex, bw) {
+  return ex.sets.reduce((v, s) => {
+    const load = setLoad(s, ex.n, bw);
+    return load == null ? v : v + load * (num(s.reps) || 0);
+  }, 0);
+}
+
+export function exerciseTop(ex, bw) {
+  return ex.sets.reduce((m, s) => {
+    const load = setLoad(s, ex.n, bw);
+    return load == null ? m : Math.max(m, load);
+  }, 0);
+}
+
+export function sessionVolume(session, bio) {
+  const bw = bodyweightOn(bio, session.date);
+  return session.exercises.reduce((v, e) => v + exerciseVolume(e, bw), 0);
+}
+
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
 export function normSession(s) {
   const map = new Map();
@@ -117,7 +192,8 @@ export function normSession(s) {
 /* ---------------------------- CSS ---------------------------- */
 export const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
-.ft-root{font-family:'Hanken Grotesk',sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:40px;}
+html,body{overflow-x:hidden;max-width:100%;}
+.ft-root{font-family:'Hanken Grotesk',sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:40px;overflow-x:hidden;max-width:100%;}
 .ft-root *{box-sizing:border-box;}
 .ft-mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;}
 .ft-muted{color:${C.muted};}
@@ -167,6 +243,10 @@ export const CSS = `
 .ft-toast{display:flex;align-items:center;gap:7px;margin-top:10px;padding:9px 12px;background:rgba(200,242,63,.12);border:1px solid ${C.accent};color:${C.accent};border-radius:9px;font-size:13px;font-weight:600;animation:ft-pop .25s ease;}
 @keyframes ft-pop{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 .ft-confirm-del{background:${C.danger};color:#fff;border:none;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;}
+.ft-edit-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px;padding:8px 12px;background:rgba(111,211,255,.1);border:1px solid ${C.blue};color:${C.blue};border-radius:9px;font-weight:600;}
+.ft-edit-bar span{display:flex;align-items:center;gap:6px;}
+.ft-edit-bar .ft-icon-b{color:${C.blue};}
+.ft-bw-hint{margin:-2px 0 9px;line-height:1.35;}
 
 .ft-datebar{justify-content:flex-start;gap:10px;margin-bottom:10px;}
 .ft-input{background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:7px 9px;font-size:14px;width:100%;outline:none;transition:.12s;}
@@ -198,15 +278,21 @@ export const CSS = `
 .ft-bio-form{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;}
 .ft-field{display:flex;flex-direction:column;gap:4px;}
 
+.ft-seg-table{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
+.ft-seg-trow{display:grid;grid-template-columns:minmax(64px,1.3fr) repeat(4,1fr);gap:6px;align-items:center;}
+.ft-seg-thead span{text-align:center;line-height:1.2;}
+.ft-seg-thead span:first-child{text-align:left;}
+.ft-seg-in{padding:6px 6px;text-align:center;}
+
 .ft-pills{display:flex;gap:6px;}
 .ft-pill{background:${C.bg};border:1px solid ${C.line};color:${C.muted};border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
 .ft-pill.on{background:${C.accent};color:${C.bg};border-color:${C.accent};}
-.ft-select-wrap{position:relative;flex:1;min-width:160px;}
+.ft-select-wrap{position:relative;flex:1;min-width:0;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
 
 /* token gate */
-.ft-gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden;}
 .ft-gate-card{width:100%;max-width:360px;}
 .ft-gate-card .ft-logo{justify-content:center;margin-bottom:6px;}
 .ft-gate-err{color:${C.danger};font-size:12.5px;margin-top:8px;text-align:center;}
@@ -214,5 +300,14 @@ export const CSS = `
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}
   .ft-bio-grid{grid-template-columns:repeat(2,1fr);}
+
+  /* нижнее фиксированное меню — удобнее для большого пальца */
+  .ft-root{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
+  .ft-nav{position:fixed;top:auto;bottom:0;left:0;right:0;z-index:20;
+    padding:7px 8px calc(7px + env(safe-area-inset-bottom));
+    background:${C.card};border-top:1px solid ${C.line};
+    box-shadow:0 -6px 18px rgba(0,0,0,.35);overflow-x:visible;}
+  .ft-tab{min-width:0;border:none;background:none;border-radius:9px;padding:5px 2px;font-size:11px;}
+  .ft-tab.on{background:none;border:none;color:${C.accent};}
 }
 `;
