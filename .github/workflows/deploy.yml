@@ -36,10 +36,15 @@ jobs:
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -p "${{ secrets.BEGET_SSH_PORT || '22' }}" "${{ secrets.BEGET_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy frontend (dist -> public_html)
+      - name: Deploy frontend assets (mirror with cleanup)
         run: |
           rsync -az --delete \
-            --exclude 'api' --exclude 'db' --exclude '.htaccess' \
+            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            dist/assets/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/assets/"
+
+      - name: Deploy frontend root files (overlay, no delete)
+        run: |
+          rsync -az --exclude 'assets' \
             -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
             dist/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/"
 
