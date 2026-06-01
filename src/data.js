@@ -200,7 +200,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-mini{font-size:12px;}
 .ft-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%;}
 
-.ft-head{padding:22px 18px 14px;}
+.ft-head{padding:calc(22px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) 14px calc(18px + env(safe-area-inset-left));}
 .ft-head-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
 .ft-logo{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:22px;letter-spacing:-.5px;display:flex;align-items:center;gap:8px;}
 .ft-head-sub{color:${C.muted};font-size:12.5px;margin-top:2px;}
@@ -216,7 +216,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-tab.on{color:${C.bg};background:${C.accent};border-color:${C.accent};}
 .ft-tab:not(.on):hover{color:${C.txt};border-color:#3a4030;}
 
-.ft-main{padding:14px 14px 0;max-width:760px;margin:0 auto;}
+.ft-main{padding:14px calc(14px + env(safe-area-inset-right)) 0 calc(14px + env(safe-area-inset-left));max-width:760px;margin:0 auto;}
 
 .ft-card{background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:14px;margin-bottom:12px;}
 .ft-card-h{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:14px;margin-bottom:10px;}
@@ -292,7 +292,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
 
 /* token gate */
-.ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden;}
+.ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));overflow:hidden;}
 .ft-gate-card{width:100%;max-width:360px;}
 .ft-gate-card .ft-logo{justify-content:center;margin-bottom:6px;}
 .ft-gate-err{color:${C.danger};font-size:12.5px;margin-top:8px;text-align:center;}
@@ -304,7 +304,7 @@ html,body{overflow-x:hidden;max-width:100%;}
   /* нижнее фиксированное меню — удобнее для большого пальца */
   .ft-root{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
   .ft-nav{position:fixed;top:auto;bottom:0;left:0;right:0;z-index:20;
-    padding:7px 8px calc(7px + env(safe-area-inset-bottom));
+    padding:7px calc(8px + env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
     background:${C.card};border-top:1px solid ${C.line};
     box-shadow:0 -6px 18px rgba(0,0,0,.35);overflow-x:visible;}
   .ft-tab{min-width:0;border:none;background:none;border-radius:9px;padding:5px 2px;font-size:11px;}
