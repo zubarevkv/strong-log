@@ -39,7 +39,7 @@ jobs:
       - name: Deploy frontend (dist -> public_html)
         run: |
           rsync -az --delete \
-            --exclude 'api' --exclude '.htaccess' \
+            --exclude 'api' --exclude 'db' --exclude '.htaccess' \
             -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
             dist/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/"
 
@@ -49,3 +49,15 @@ jobs:
             --exclude 'config.local.php' \
             -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
             api/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/api/"
+
+      - name: Deploy DB migrations (db -> public_html/db)
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            db/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/db/"
+
+      - name: Apply DB migrations (idempotent, over SSH)
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "${{ secrets.BEGET_SSH_PORT || '22' }}" \
+            "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}" \
+            "${{ secrets.BEGET_PHP || 'php' }} ${{ secrets.BEGET_PATH }}/api/migrate.php"
