@@ -584,7 +584,7 @@ function Progress({ sessions, bio }) {
   }, [sessions]);
 
   const [ex, setEx] = useState("");
-  const [metric, setMetric] = useState("volume");
+  const [metric, setMetric] = useState("top");
   const [bioMetric, setBioMetric] = useState("weight");
 
   useEffect(() => { if (!ex && exNames.length) setEx(exNames[0]); }, [exNames, ex]);
@@ -631,7 +631,7 @@ function Progress({ sessions, bio }) {
               </div>
             </div>
             <Chart data={exData} dataKey={metric} color={C.accent}
-              unit={metric === "top" ? "кг" : ""} type="bar" />
+              unit={metric === "top" ? "кг" : ""} type="line" />
           </>
         )}
       </div>

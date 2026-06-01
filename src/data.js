@@ -117,7 +117,8 @@ export function normSession(s) {
 /* ---------------------------- CSS ---------------------------- */
 export const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
-.ft-root{font-family:'Hanken Grotesk',sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:40px;}
+html,body{overflow-x:hidden;max-width:100%;}
+.ft-root{font-family:'Hanken Grotesk',sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:40px;overflow-x:hidden;max-width:100%;}
 .ft-root *{box-sizing:border-box;}
 .ft-mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;}
 .ft-muted{color:${C.muted};}
@@ -201,12 +202,12 @@ export const CSS = `
 .ft-pills{display:flex;gap:6px;}
 .ft-pill{background:${C.bg};border:1px solid ${C.line};color:${C.muted};border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
 .ft-pill.on{background:${C.accent};color:${C.bg};border-color:${C.accent};}
-.ft-select-wrap{position:relative;flex:1;min-width:160px;}
+.ft-select-wrap{position:relative;flex:1;min-width:0;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
 
 /* token gate */
-.ft-gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden;}
 .ft-gate-card{width:100%;max-width:360px;}
 .ft-gate-card .ft-logo{justify-content:center;margin-bottom:6px;}
 .ft-gate-err{color:${C.danger};font-size:12.5px;margin-top:8px;text-align:center;}
@@ -214,5 +215,14 @@ export const CSS = `
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}
   .ft-bio-grid{grid-template-columns:repeat(2,1fr);}
+
+  /* нижнее фиксированное меню — удобнее для большого пальца */
+  .ft-root{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
+  .ft-nav{position:fixed;top:auto;bottom:0;left:0;right:0;z-index:20;
+    padding:7px 8px calc(7px + env(safe-area-inset-bottom));
+    background:${C.card};border-top:1px solid ${C.line};
+    box-shadow:0 -6px 18px rgba(0,0,0,.35);overflow-x:visible;}
+  .ft-tab{min-width:0;border:none;background:none;border-radius:9px;padding:5px 2px;font-size:11px;}
+  .ft-tab.on{background:none;border:none;color:${C.accent};}
 }
 `;
