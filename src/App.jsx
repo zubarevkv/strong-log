@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
   Plus, Trash2, Check, X, ChevronDown, ChevronUp, Flame, ArrowUp, ArrowDown,
   LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus, Trophy,
+  Timer, Play, Pause, RotateCcw,
 } from "lucide-react";
 
 import {
@@ -442,6 +443,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
 
   return (
     <div>
+      <RestTimer />
       <div className="ft-prog-bar">
         <span className="ft-mini ft-muted">Программа тренировки</span>
         <div className="ft-row" style={{ gap: 6 }}>
@@ -778,6 +780,90 @@ function ProgramEditor({ templates, addTemplate, removeTemplate, startNew, onClo
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------- REST TIMER (фичи #1) ---------------------------- */
+const REST_PRESETS = [60, 90, 120, 180];
+const fmtClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+// короткий бип через WebAudio (без ассетов)
+function restBeep() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = "sine"; o.frequency.value = 880;
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.start(t); o.stop(t + 0.5);
+    o.onended = () => ctx.close();
+  } catch { /* звук необязателен */ }
+}
+
+function RestTimer() {
+  const [remaining, setRemaining] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [open, setOpen] = useState(false);
+  const tick = useRef(null);
+
+  useEffect(() => {
+    if (!running) return;
+    tick.current = setInterval(() => {
+      setRemaining((r) => {
+        if (r <= 1) {
+          setRunning(false);
+          restBeep();
+          navigator.vibrate?.(200);
+          return 0;
+        }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick.current);
+  }, [running]);
+
+  function start(sec) { setRemaining(sec); setRunning(true); setOpen(true); }
+  function toggle() { if (remaining > 0) setRunning((v) => !v); }
+  function reset() { setRunning(false); setRemaining(0); }
+  function hide() { reset(); setOpen(false); }
+
+  const expanded = open || running || remaining > 0;
+
+  return (
+    <div className={"ft-rest-timer" + (expanded ? " open" : "")}>
+      {expanded ? (
+        <>
+          <span className="ft-rest-time ft-mono">{fmtClock(remaining)}</span>
+          <div className="ft-rest-presets">
+            {REST_PRESETS.map((p) => (
+              <button key={p} className="ft-rest-preset" onClick={() => start(p)}>
+                {p % 60 === 0 && p >= 120 ? p / 60 + "м" : p + "с"}
+              </button>
+            ))}
+          </div>
+          <button className="ft-icon-b ft-rest-ctl" onClick={toggle} disabled={remaining === 0}
+            title={running ? "Пауза" : "Продолжить"}>
+            {running ? <Pause size={16} /> : <Play size={16} />}
+          </button>
+          <button className="ft-icon-b ft-rest-ctl" onClick={reset} title="Сброс">
+            <RotateCcw size={16} />
+          </button>
+          <button className="ft-icon-b ft-rest-ctl" onClick={hide} title="Скрыть">
+            <X size={16} />
+          </button>
+        </>
+      ) : (
+        <button className="ft-rest-fab" onClick={() => setOpen(true)} title="Таймер отдыха">
+          <Timer size={20} />
+        </button>
+      )}
     </div>
   );
 }

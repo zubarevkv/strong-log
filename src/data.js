@@ -364,6 +364,19 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
 
+/* таймер отдыха (фичи #1) */
+.ft-rest-timer{position:fixed;right:16px;bottom:16px;z-index:30;display:flex;align-items:center;gap:6px;}
+.ft-rest-timer.open{background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:7px 9px;box-shadow:0 8px 24px rgba(0,0,0,.45);flex-wrap:wrap;max-width:calc(100vw - 32px);}
+.ft-rest-fab{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:${C.accent};color:${C.bg};border:none;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.ft-rest-fab:hover{background:#d9ff5c;}
+.ft-rest-time{font-size:18px;font-weight:700;min-width:46px;text-align:center;color:${C.accent};}
+.ft-rest-presets{display:flex;gap:4px;}
+.ft-rest-preset{background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:7px;padding:5px 8px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
+.ft-rest-preset:hover{border-color:${C.accent};color:${C.accent};}
+.ft-rest-ctl{color:${C.txt};}
+.ft-rest-ctl:hover{color:${C.accent};background:rgba(200,242,63,.1);}
+.ft-rest-ctl:disabled{opacity:.4;cursor:default;}
+
 /* бейдж личного рекорда (графики #1) */
 .ft-pr{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;color:${C.accent};background:rgba(200,242,63,.12);border:1px solid ${C.accent2};border-radius:6px;padding:1px 4px;}
 
@@ -396,6 +409,9 @@ html,body{overflow-x:hidden;max-width:100%;}
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}
   .ft-bio-grid{grid-template-columns:repeat(2,1fr);}
+
+  /* таймер — над фиксированным нижним меню */
+  .ft-rest-timer{bottom:calc(74px + env(safe-area-inset-bottom));}
 
   /* нижнее фиксированное меню — удобнее для большого пальца */
   .ft-root{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
