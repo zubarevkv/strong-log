@@ -60,6 +60,9 @@ const remote = {
   getBio: () => req("GET", "/bio"),
   saveBio: (b) => req("POST", "/bio", b),
   deleteBio: (id) => req("DELETE", `/bio/${encodeURIComponent(id)}`),
+  getTemplates: () => req("GET", "/templates"),
+  saveTemplate: (t) => req("POST", "/templates", t),
+  deleteTemplate: (id) => req("DELETE", `/templates/${encodeURIComponent(id)}`),
 };
 
 /* ============================================================
@@ -68,6 +71,7 @@ const remote = {
 const LS = {
   sessions: "strong-log:sessions",
   bio: "strong-log:bio",
+  templates: "strong-log:templates",
 };
 const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } };
 const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -92,6 +96,16 @@ const local = {
   },
   async deleteBio(id) {
     lsSet(LS.bio, lsGet(LS.bio).filter((x) => x.id !== id));
+    return null;
+  },
+  async getTemplates() { return lsGet(LS.templates); },
+  async saveTemplate(t) {
+    const arr = lsGet(LS.templates).filter((x) => x.id !== t.id);
+    lsSet(LS.templates, [t, ...arr]);
+    return t;
+  },
+  async deleteTemplate(id) {
+    lsSet(LS.templates, lsGet(LS.templates).filter((x) => x.id !== id));
     return null;
   },
 };

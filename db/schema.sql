@@ -5,11 +5,20 @@
 CREATE TABLE IF NOT EXISTS sessions (
   id          VARCHAR(40) PRIMARY KEY,
   date        DATE NOT NULL,
-  template_id VARCHAR(8) NOT NULL,
+  template_id VARCHAR(40) NOT NULL,          -- встроенные id короткие, кастомные = uid() (~12 симв.)
   data        TEXT NOT NULL,                 -- JSON: exercises[]
   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_sessions_date (date),
   INDEX idx_sessions_tpl (template_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- пользовательские программы тренировок (встроенные 4 живут в коде, здесь — кастомные)
+CREATE TABLE IF NOT EXISTS templates (
+  id         VARCHAR(40) PRIMARY KEY,
+  name       VARCHAR(120) NOT NULL,
+  sub        VARCHAR(160),
+  data       TEXT NOT NULL,                  -- JSON: ex[] ({n, s:[[w,r,hint?]]})
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS bio_entries (

@@ -11,10 +11,12 @@ export const C = {
   blue: "#6fd3ff", pink: "#ff8ab0", danger: "#ff6b5e",
 };
 
-/* ---------- program templates (targets prefill the log form) ---------- */
-export const TEMPLATES = [
+/* ---------- program templates (targets prefill the log form) ----------
+ * Встроенные программы (read-only). Кастомные хранятся в БД/LS той же формы,
+ * но с builtin:false. allTemplates = [...BUILTIN_TEMPLATES, ...custom]. */
+export const BUILTIN_TEMPLATES = [
   {
-    id: "h1t1", name: "Н1 · Т1", sub: "Грудь / спина / руки",
+    id: "h1t1", name: "Н1 · Т1", sub: "Грудь / спина / руки", builtin: true,
     ex: [
       { n: "Выпрыгивания с гантелью", s: [[12,5],[12,5],[12,5],[12,5]] },
       { n: "Жим лёжа", s: [[60,8],[70,5],[70,5,"4–5"],[70,4]] },
@@ -26,7 +28,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: "h1t2", name: "Н1 · Т2", sub: "Ноги / плечи / трицепс",
+    id: "h1t2", name: "Н1 · Т2", sub: "Ноги / плечи / трицепс", builtin: true,
     ex: [
       { n: "Подъёмы на носки сидя", s: [[20,15],[20,15],[25,12]] },
       { n: "Жим гантелей 15°", s: [[22,10],[22,10],[22,10,"9–10"]] },
@@ -38,7 +40,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: "h2t1", name: "Н2 · Т1", sub: "Грудь / спина / руки",
+    id: "h2t1", name: "Н2 · Т1", sub: "Грудь / спина / руки", builtin: true,
     ex: [
       { n: "Гоблет-присед", s: [[26,8],[26,8],[26,8],[26,8]] },
       { n: "Жим гантелей 15°", s: [[22,10],[24,8],[24,8]] },
@@ -50,7 +52,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: "h2t2", name: "Н2 · Т2", sub: "Ноги / плечи / руки",
+    id: "h2t2", name: "Н2 · Т2", sub: "Ноги / плечи / руки", builtin: true,
     ex: [
       { n: "Подъёмы на носки сидя", s: [[20,15],[25,12],[25,12]] },
       { n: "Жим в тренажёре на грудь (1 рука)", s: [[30,10],[30,10],[32.5,9,"8–10"]] },
@@ -177,6 +179,110 @@ export function sessionVolume(session, bio) {
   return session.exercises.reduce((v, e) => v + exerciseVolume(e, bw), 0);
 }
 
+/* ---- личные рекорды (графики #1) ----
+ * Идём по сессиям по возрастанию даты, ведём best[canon] = макс. эфф. нагрузка.
+ * Рекорд засчитываем только если ранее уже был best и текущий top строго его
+ * превышает (первое появление упражнения рекордом не считаем). */
+export function prSessionMap(sessions, bio) {
+  const out = new Map();
+  const best = {};
+  const sorted = [...(sessions || [])].sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
+  );
+  for (const s of sorted) {
+    const bw = bodyweightOn(bio, s.date);
+    const prs = [];
+    for (const e of s.exercises) {
+      const cn = canon(e.n);
+      const top = exerciseTop(e, bw);
+      if (!top) continue;
+      if (best[cn] == null) { best[cn] = top; continue; }
+      if (top > best[cn]) { best[cn] = top; prs.push(e.n); }
+    }
+    if (prs.length) out.set(s.id, prs);
+  }
+  return out;
+}
+
+/* ---- авто-прогрессия нагрузки (фичи #3) ---- */
+// шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
+const LEG_RE = /присед|носк|ног|выпад|гоблет|икр/i;
+export function stepKg(name) { return LEG_RE.test(name || "") ? 5 : 2.5; }
+
+// подходы из самой свежей сессии, где встречалось это (canon) упражнение
+export function lastExerciseSets(sessions, name) {
+  const cn = canon(name);
+  const hits = (sessions || [])
+    .filter((s) => s.exercises.some((e) => canon(e.n) === cn))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.id || "").localeCompare(a.id || ""));
+  if (!hits.length) return null;
+  const e = hits[0].exercises.find((x) => canon(x.n) === cn);
+  return e ? e.sets : null;
+}
+
+// форма как initForm, но веса/повторы предзаполнены из последней тренировки (если была)
+export function suggestForm(tpl, sessions) {
+  return tpl.ex.map((e) => {
+    const n = canon(e.n);
+    const hist = lastExerciseSets(sessions, n);
+    if (hist && hist.length) {
+      // подмешиваем целевой диапазон (hint) из шаблона по индексу подхода
+      return {
+        n,
+        sets: hist.map((s, i) => ({
+          weight: s.weight ?? "",
+          reps: s.reps ?? "",
+          hint: e.s[i]?.[2] || "",
+        })),
+      };
+    }
+    return {
+      n,
+      sets: e.s.map((arr) => ({
+        weight: arr[0] ? arr[0] : "",
+        reps: arr[1] != null ? arr[1] : "",
+        hint: arr[2] || "",
+      })),
+    };
+  });
+}
+
+// мета для чипа прогрессии: текст прошлой тренировки + шаг прибавки
+export function exerciseMeta(sessions, name) {
+  const step = stepKg(name);
+  const hist = lastExerciseSets(sessions, name);
+  if (!hist || !hist.length) return { lastText: "", step };
+  const lastText = hist
+    .map((s) => (s.weight ? s.weight : 0) + "×" + (s.reps ?? "—"))
+    .join(" / ");
+  return { lastText, step };
+}
+
+/* ---- корреляция вес тела ↔ объём (графики #7) ---- */
+// коэффициент Пирсона по [[x,y]…]; null при <3 точках или нулевой дисперсии
+export function pearson(pairs) {
+  const n = pairs.length;
+  if (n < 3) return null;
+  let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (const [x, y] of pairs) { sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; }
+  const cov = n * sxy - sx * sy;
+  const dx = n * sxx - sx * sx;
+  const dy = n * syy - sy * sy;
+  if (dx <= 0 || dy <= 0) return null;
+  return cov / Math.sqrt(dx * dy);
+}
+
+// пары {вес тела, объём сессии} только для тренировок с известным весом
+export function weightVolumePairs(sessions, bio) {
+  return (sessions || [])
+    .map((s) => {
+      const w = bodyweightOn(bio, s.date);
+      if (w == null) return null;
+      return { weight: w, volume: Math.round(sessionVolume(s, bio)) };
+    })
+    .filter(Boolean);
+}
+
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
 export function normSession(s) {
   const map = new Map();
@@ -291,6 +397,43 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
 
+/* таймер отдыха (фичи #1) */
+.ft-rest-timer{position:fixed;right:16px;bottom:16px;z-index:30;display:flex;align-items:center;gap:6px;}
+.ft-rest-timer.open{background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:7px 9px;box-shadow:0 8px 24px rgba(0,0,0,.45);flex-wrap:wrap;max-width:calc(100vw - 32px);}
+.ft-rest-fab{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:${C.accent};color:${C.bg};border:none;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.ft-rest-fab:hover{background:#d9ff5c;}
+.ft-rest-time{font-size:18px;font-weight:700;min-width:46px;text-align:center;color:${C.accent};}
+.ft-rest-presets{display:flex;gap:4px;}
+.ft-rest-preset{background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:7px;padding:5px 8px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
+.ft-rest-preset:hover{border-color:${C.accent};color:${C.accent};}
+.ft-rest-ctl{color:${C.txt};}
+.ft-rest-ctl:hover{color:${C.accent};background:rgba(200,242,63,.1);}
+.ft-rest-ctl:disabled{opacity:.4;cursor:default;}
+
+/* бейдж личного рекорда (графики #1) */
+.ft-pr{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;color:${C.accent};background:rgba(200,242,63,.12);border:1px solid ${C.accent2};border-radius:6px;padding:1px 4px;}
+
+/* авто-прогрессия чип (фичи #3) */
+.ft-progress-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin:-2px 0 9px;padding:5px 9px;background:rgba(200,242,63,.1);border:1px solid ${C.accent2};color:${C.accent};border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;overflow:hidden;}
+.ft-progress-chip:hover{background:rgba(200,242,63,.18);}
+.ft-progress-chip.done{background:rgba(200,242,63,.22);border-color:${C.accent};}
+.ft-progress-chip .ft-muted{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* program editor (фичи #2) */
+.ft-prog-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.ft-prog-btn{display:inline-flex;align-items:center;gap:5px;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
+.ft-prog-btn:hover{border-color:${C.accent};color:${C.accent};}
+.ft-prog-overlay{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;padding:max(24px,env(safe-area-inset-top)) 12px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.ft-prog-editor{background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:14px;width:100%;max-width:560px;margin:auto 0;}
+.ft-prog-head{margin-bottom:12px;}
+.ft-prog-head strong{font-family:'Bricolage Grotesque',sans-serif;font-size:16px;}
+.ft-prog-list{display:flex;flex-direction:column;gap:8px;}
+.ft-prog-item{display:flex;align-items:center;justify-content:space-between;gap:8px;background:${C.bg};border:1px solid ${C.line};border-radius:10px;padding:9px 11px;}
+.ft-prog-form{display:flex;flex-direction:column;gap:10px;}
+.ft-prog-ex{padding:11px 12px 10px;margin-bottom:0;background:${C.bg};}
+.ft-prog-ex .ft-ex-h{gap:8px;}
+.ft-prog-ex .ft-ex-h .ft-input{flex:1;}
+
 /* token gate */
 .ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));overflow:hidden;}
 .ft-gate-card{width:100%;max-width:360px;}
@@ -300,6 +443,9 @@ html,body{overflow-x:hidden;max-width:100%;}
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}
   .ft-bio-grid{grid-template-columns:repeat(2,1fr);}
+
+  /* таймер — над фиксированным нижним меню */
+  .ft-rest-timer{bottom:calc(74px + env(safe-area-inset-bottom));}
 
   /* нижнее фиксированное меню — удобнее для большого пальца */
   .ft-root{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
