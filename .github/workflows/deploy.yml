@@ -1,7 +1,7 @@
 name: Deploy to Beget
 
 # Собирает фронт (Vite) и заливает на Beget по SSH/rsync.
-# dist/ -> корень домена, api/ -> <корень>/api.
+# assets/ -> зеркало с очисткой; корень -> overlay; api/ и db/ -> отдельно; затем миграции.
 # Триггер — push в продакшен-ветку (поменяй на свою, например main).
 
 on:
@@ -16,6 +16,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      REMOTE: ${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}
+      RPATH: ${{ secrets.BEGET_PATH }}
+      SSH_OPTS: -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }} -o StrictHostKeyChecking=accept-new
     steps:
       - uses: actions/checkout@v4
 
@@ -29,40 +33,26 @@ jobs:
           npm ci
           npm run build
 
-      - name: Setup SSH
+      - name: Setup SSH key
         run: |
-          mkdir -p ~/.ssh
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.BEGET_SSH_KEY }}" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -p "${{ secrets.BEGET_SSH_PORT || '22' }}" "${{ secrets.BEGET_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Check SSH connection
+        run: ssh $SSH_OPTS "$REMOTE" "echo SSH OK on \$(hostname)"
 
       - name: Deploy frontend assets (mirror with cleanup)
-        run: |
-          rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
-            dist/assets/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/assets/"
+        run: rsync -az --delete -e "ssh $SSH_OPTS" dist/assets/ "$REMOTE:$RPATH/assets/"
 
       - name: Deploy frontend root files (overlay, no delete)
-        run: |
-          rsync -az --exclude 'assets' \
-            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
-            dist/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/"
+        run: rsync -az --exclude 'assets' -e "ssh $SSH_OPTS" dist/ "$REMOTE:$RPATH/"
 
       - name: Deploy backend (api -> public_html/api)
-        run: |
-          rsync -az --delete \
-            --exclude 'config.local.php' \
-            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
-            api/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/api/"
+        run: rsync -az --delete --exclude 'config.local.php' -e "ssh $SSH_OPTS" api/ "$REMOTE:$RPATH/api/"
 
       - name: Deploy DB migrations (db -> public_html/db)
-        run: |
-          rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_deploy -p ${{ secrets.BEGET_SSH_PORT || '22' }}" \
-            db/ "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}:${{ secrets.BEGET_PATH }}/db/"
+        run: rsync -az --delete -e "ssh $SSH_OPTS" db/ "$REMOTE:$RPATH/db/"
 
       - name: Apply DB migrations (idempotent, over SSH)
-        run: |
-          ssh -i ~/.ssh/id_deploy -p "${{ secrets.BEGET_SSH_PORT || '22' }}" \
-            "${{ secrets.BEGET_USER }}@${{ secrets.BEGET_HOST }}" \
-            "${{ secrets.BEGET_PHP || 'php' }} ${{ secrets.BEGET_PATH }}/api/migrate.php"
+        run: ssh $SSH_OPTS "$REMOTE" "${{ secrets.BEGET_PHP || 'php' }} $RPATH/api/migrate.php"
