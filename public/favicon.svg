@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="STRØNG·LOG">
+  <rect width="512" height="512" rx="112" fill="#0c0e0a"/>
+  <g fill="none" stroke="#c8f23f" stroke-width="40" stroke-linecap="round">
+    <circle cx="256" cy="256" r="142"/>
+    <line x1="150" y1="362" x2="362" y2="150"/>
+  </g>
+</svg>
