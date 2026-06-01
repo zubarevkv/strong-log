@@ -816,18 +816,20 @@ function RestTimer() {
   useEffect(() => {
     if (!running) return;
     tick.current = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
-          setRunning(false);
-          restBeep();
-          navigator.vibrate?.(200);
-          return 0;
-        }
-        return r - 1;
-      });
+      setRemaining((r) => (r > 0 ? r - 1 : 0));
     }, 1000);
     return () => clearInterval(tick.current);
   }, [running]);
+
+  // срабатывание ровно при переходе в 0 на работающем таймере;
+  // ручной «Сброс» гасит running одновременно с remaining → бипа не будет
+  useEffect(() => {
+    if (running && remaining === 0) {
+      setRunning(false);
+      restBeep();
+      navigator.vibrate?.(200);
+    }
+  }, [remaining, running]);
 
   function start(sec) { setRemaining(sec); setRunning(true); setOpen(true); }
   function toggle() { if (remaining > 0) setRunning((v) => !v); }
