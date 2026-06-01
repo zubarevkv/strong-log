@@ -226,7 +226,15 @@ export function suggestForm(tpl, sessions) {
     const n = canon(e.n);
     const hist = lastExerciseSets(sessions, n);
     if (hist && hist.length) {
-      return { n, sets: hist.map((s) => ({ weight: s.weight ?? "", reps: s.reps ?? "", hint: "" })) };
+      // подмешиваем целевой диапазон (hint) из шаблона по индексу подхода
+      return {
+        n,
+        sets: hist.map((s, i) => ({
+          weight: s.weight ?? "",
+          reps: s.reps ?? "",
+          hint: e.s[i]?.[2] || "",
+        })),
+      };
     }
     return {
       n,
