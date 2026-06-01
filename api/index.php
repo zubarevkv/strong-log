@@ -147,6 +147,10 @@ function handleTemplates(PDO $pdo, string $method, ?string $id): void
         if ($tid === '' || $name === '' || !is_array($ex)) {
             Response::error('Некорректная программа', 422);
         }
+        // длины колонок (см. db/schema.sql) — не даём MySQL упасть с 500 в strict-режиме
+        if (mb_strlen($tid) > 40 || mb_strlen($name) > 120 || mb_strlen($sub) > 160) {
+            Response::error('Слишком длинное поле программы', 422);
+        }
         $stmt = $pdo->prepare(
             'INSERT INTO templates (id, name, sub, data)
              VALUES (:id, :name, :sub, :data)
