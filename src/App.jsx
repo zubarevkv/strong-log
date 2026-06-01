@@ -340,13 +340,14 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     }
   }, [templates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // мета прогрессии по упражнениям текущей формы (имена + история)
-  const exNames = form.map((e) => e.n).join("|");
+  // мета прогрессии по упражнениям текущей формы (имена + история).
+  // ключ через JSON.stringify — безопасно для имён с любыми символами
+  const exNamesKey = JSON.stringify(form.map((e) => e.n));
   const exMeta = useMemo(() => {
     const m = {};
-    exNames.split("|").forEach((n) => { if (n) m[n] = exerciseMeta(sessions, n); });
+    JSON.parse(exNamesKey).forEach((n) => { if (n) m[n] = exerciseMeta(sessions, n); });
     return m;
-  }, [exNames, sessions]);
+  }, [exNamesKey, sessions]);
 
   function bumpWeights(ei, step) {
     setForm((f) => {
