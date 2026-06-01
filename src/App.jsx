@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, ScatterChart, Scatter,
 } from "recharts";
 import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
@@ -14,7 +14,7 @@ import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
-  suggestForm, exerciseMeta, prSessionMap,
+  suggestForm, exerciseMeta, prSessionMap, pearson, weightVolumePairs,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -1030,6 +1030,14 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
 }
 
 /* ---------------------------- PROGRESS ---------------------------- */
+// словесная интерпретация коэффициента корреляции
+function corrText(r) {
+  const a = Math.abs(r);
+  const strength = a < 0.3 ? "слабая связь" : a < 0.6 ? "умеренная связь" : "сильная связь";
+  const dir = r > 0 ? "выше вес — выше объём" : "выше вес — ниже объём";
+  return `${strength}, ${dir}`;
+}
+
 function Progress({ sessions, bio }) {
   const exNames = useMemo(() => {
     const set = new Set();
@@ -1072,6 +1080,9 @@ function Progress({ sessions, bio }) {
 
   const bm = BIO_METRICS.find((m) => m.k === bioMetric);
 
+  const wvPairs = useMemo(() => weightVolumePairs(sessions, bio), [sessions, bio]);
+  const wvR = useMemo(() => pearson(wvPairs.map((p) => [p.weight, p.volume])), [wvPairs]);
+
   return (
     <div>
       <div className="ft-card">
@@ -1104,6 +1115,39 @@ function Progress({ sessions, bio }) {
           <div className="ft-muted ft-mini">Запиши тренировку, чтобы увидеть график.</div>
         ) : (
           <Chart data={volData} dataKey="v" color={C.accent2} unit="об." type="line" />
+        )}
+      </div>
+
+      <div className="ft-card">
+        <div className="ft-card-h">Вес тела ↔ объём тренировки</div>
+        {wvPairs.length < 3 ? (
+          <div className="ft-muted ft-mini">
+            Нужно ≥3 тренировки с замером веса тела рядом по дате. Добавь замеры на вкладке «Тело».
+          </div>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={220}>
+              <ScatterChart margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid stroke={C.line} />
+                <XAxis type="number" dataKey="weight" name="Вес" unit=" кг"
+                  domain={["auto", "auto"]} stroke={C.muted} fontSize={11} tickLine={false} />
+                <YAxis type="number" dataKey="volume" name="Объём"
+                  stroke={C.muted} fontSize={11} tickLine={false} />
+                <Tooltip cursor={{ strokeDasharray: "3 3", stroke: C.line }}
+                  contentStyle={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 }}
+                  labelStyle={{ color: C.muted }}
+                  formatter={(v, n) => [n === "Вес" ? `${v} кг` : `${v} об.`, n]} />
+                <Scatter data={wvPairs} fill={C.accent} />
+              </ScatterChart>
+            </ResponsiveContainer>
+            <div className="ft-mini" style={{ marginTop: 8 }}>
+              {wvR == null ? (
+                <span className="ft-muted">Недостаточно разброса данных для оценки связи.</span>
+              ) : (
+                <>Корреляция r = <strong className="ft-mono" style={{ color: C.accent }}>{wvR.toFixed(2)}</strong> — {corrText(wvR)}</>
+              )}
+            </div>
+          </>
         )}
       </div>
 

@@ -250,6 +250,31 @@ export function exerciseMeta(sessions, name) {
   return { lastText, step };
 }
 
+/* ---- корреляция вес тела ↔ объём (графики #7) ---- */
+// коэффициент Пирсона по [[x,y]…]; null при <3 точках или нулевой дисперсии
+export function pearson(pairs) {
+  const n = pairs.length;
+  if (n < 3) return null;
+  let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (const [x, y] of pairs) { sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; }
+  const cov = n * sxy - sx * sy;
+  const dx = n * sxx - sx * sx;
+  const dy = n * syy - sy * sy;
+  if (dx <= 0 || dy <= 0) return null;
+  return cov / Math.sqrt(dx * dy);
+}
+
+// пары {вес тела, объём сессии} только для тренировок с известным весом
+export function weightVolumePairs(sessions, bio) {
+  return (sessions || [])
+    .map((s) => {
+      const w = bodyweightOn(bio, s.date);
+      if (w == null) return null;
+      return { weight: w, volume: Math.round(sessionVolume(s, bio)) };
+    })
+    .filter(Boolean);
+}
+
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
 export function normSession(s) {
   const map = new Map();
