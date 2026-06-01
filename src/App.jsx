@@ -156,6 +156,9 @@ export default function App() {
         {tab === "body" && <Body bio={bio} upsertBio={upsertBio} removeBio={removeBio} onErr={setSyncErr} />}
         {tab === "progress" && <Progress sessions={sessions} bio={bio} />}
       </main>
+
+      {/* таймер отдыха — на уровне App, чтобы запущенный отсчёт переживал смену вкладок */}
+      <RestTimer />
     </div>
   );
 }
@@ -443,7 +446,6 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
 
   return (
     <div>
-      <RestTimer />
       <div className="ft-prog-bar">
         <span className="ft-mini ft-muted">Программа тренировки</span>
         <div className="ft-row" style={{ gap: 6 }}>
