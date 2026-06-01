@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import {
-  C, TEMPLATES, BIO_METRICS, CSS,
+  C, TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   canon, normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
 } from "./data.js";
@@ -522,24 +522,42 @@ function initForm(tpl) {
 
 /* ---------------------------- BODY (bioimpedance) ---------------------------- */
 function Body({ bio, upsertBio, removeBio, onErr }) {
-  const empty = { date: today(), weight: "", fat: "", muscle: "", water: "", visceral: "", bone: "", note: "" };
-  const [f, setF] = useState(empty);
+  const blank = () => {
+    const o = { date: today(), note: "" };
+    BIO_METRICS.forEach((m) => { o[m.k] = ""; });
+    return o;
+  };
+  const [f, setF] = useState(blank);
+  const [segs, setSegs] = useState({});
   const [toast, setToast] = useState("");
   const [confirmId, setConfirmId] = useState(null);
   const [saving, setSaving] = useState(false);
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2400); }
+  function setSeg(segK, fieldK, val) {
+    setSegs((p) => ({ ...p, [segK]: { ...(p[segK] || {}), [fieldK]: val } }));
+  }
 
   async function commit() {
     if (saving) return;
-    if (Object.keys(empty).every((k) => k === "date" || k === "note" ? false : f[k] === "")) {
-      flash("Заполни хотя бы одно поле"); return;
-    }
+    const anyMetric = BIO_METRICS.some((m) => f[m.k] !== "");
+    const anySeg = Object.values(segs).some((row) => row && Object.values(row).some((v) => v !== "" && v != null));
+    if (!anyMetric && !anySeg) { flash("Заполни хотя бы одно поле"); return; }
     const entry = { id: uid(), date: f.date, note: f.note };
     BIO_METRICS.forEach((m) => { entry[m.k] = num(f[m.k]); });
+    const segData = {};
+    SEGMENTS.forEach((s) => {
+      const row = segs[s.k] || {};
+      if (SEG_FIELDS.some((sf) => row[sf.k] !== "" && row[sf.k] != null)) {
+        segData[s.k] = {};
+        SEG_FIELDS.forEach((sf) => { segData[s.k][sf.k] = num(row[sf.k]); });
+      }
+    });
+    if (Object.keys(segData).length) entry.segments = segData;
     setSaving(true);
     try {
       await upsertBio(entry);
-      setF(empty);
+      setF(blank());
+      setSegs({});
       flash(`Замер сохранён — ${fmtDate(entry.date)}`);
     } catch (e) {
       onErr(e.message || "Не удалось сохранить");
@@ -583,6 +601,35 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
         </div>
       </div>
 
+      <div className="ft-card">
+        <div className="ft-card-h">Анализ по сегментам</div>
+        <div className="ft-mini ft-muted" style={{ marginBottom: 10 }}>
+          Мышцы и жир по конечностям и туловищу. Необязательно — заполняй, если есть данные.
+        </div>
+        <div className="ft-seg-table">
+          <div className="ft-seg-trow ft-seg-thead ft-mini ft-muted">
+            <span></span>
+            {SEG_FIELDS.map((sf) => (
+              <span key={sf.k} style={{ color: sf.color }}>{sf.label}<br />{sf.unit}</span>
+            ))}
+          </div>
+          {SEGMENTS.map((s) => (
+            <div key={s.k} className="ft-seg-trow">
+              <span className="ft-mini">{s.label}</span>
+              {SEG_FIELDS.map((sf) => (
+                <input key={sf.k} className="ft-input ft-mono ft-seg-in" type="number"
+                  inputMode="decimal" placeholder="—"
+                  value={(segs[s.k] && segs[s.k][sf.k]) ?? ""}
+                  onChange={(e) => setSeg(s.k, sf.k, e.target.value)} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
+          <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
+        </button>
+      </div>
+
       {sorted.map((b) => (
         <div key={b.id} className="ft-card ft-hist">
           <div className="ft-row">
@@ -610,6 +657,26 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
               </div>
             ))}
           </div>
+          {b.segments && Object.keys(b.segments).length > 0 && (
+            <div className="ft-seg-table" style={{ marginTop: 10 }}>
+              <div className="ft-seg-trow ft-seg-thead ft-mini ft-muted">
+                <span>Сегмент</span>
+                {SEG_FIELDS.map((sf) => (
+                  <span key={sf.k} style={{ color: sf.color }}>{sf.label}<br />{sf.unit}</span>
+                ))}
+              </div>
+              {SEGMENTS.map((s) => b.segments[s.k] && (
+                <div key={s.k} className="ft-seg-trow">
+                  <span className="ft-mini">{s.label}</span>
+                  {SEG_FIELDS.map((sf) => (
+                    <span key={sf.k} className="ft-mono ft-mini" style={{ textAlign: "center" }}>
+                      {b.segments[s.k][sf.k] ?? "—"}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>

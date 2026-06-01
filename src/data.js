@@ -67,9 +67,27 @@ export const BIO_METRICS = [
   { k: "weight", label: "Вес", unit: "кг", color: C.accent },
   { k: "fat", label: "Жир", unit: "%", color: C.pink },
   { k: "muscle", label: "Мышцы", unit: "кг", color: C.blue },
-  { k: "water", label: "Вода", unit: "%", color: "#7fe0c0" },
+  { k: "water", label: "Вода", unit: "л", color: "#7fe0c0" },
   { k: "visceral", label: "Висц. жир", unit: "", color: "#ffb347" },
-  { k: "bone", label: "Кости", unit: "кг", color: "#b6a8ff" },
+  { k: "bone", label: "Безжировая масса", unit: "кг", color: "#b6a8ff" },
+  { k: "protein", label: "Белок", unit: "кг", color: "#ff9e7a" },
+  { k: "minerals", label: "Минералы", unit: "кг", color: "#9ad0c2" },
+  { k: "bmi", label: "ИМТ", unit: "", color: "#d3c0ff" },
+];
+
+/* ---- сегментный анализ тела (п.12) ---- */
+export const SEGMENTS = [
+  { k: "larm", label: "Левая рука" },
+  { k: "rarm", label: "Правая рука" },
+  { k: "lleg", label: "Левая нога" },
+  { k: "rleg", label: "Правая нога" },
+  { k: "trunk", label: "Туловище" },
+];
+export const SEG_FIELDS = [
+  { k: "muscleKg", label: "Мышцы", unit: "кг", color: C.blue },
+  { k: "musclePct", label: "Мышцы", unit: "%", color: C.blue },
+  { k: "fatKg", label: "Жир", unit: "кг", color: C.pink },
+  { k: "fatPct", label: "Жир", unit: "%", color: C.pink },
 ];
 
 /* ---- helpers ---- */
@@ -251,6 +269,12 @@ html,body{overflow-x:hidden;max-width:100%;}
 
 .ft-bio-form{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;}
 .ft-field{display:flex;flex-direction:column;gap:4px;}
+
+.ft-seg-table{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
+.ft-seg-trow{display:grid;grid-template-columns:minmax(64px,1.3fr) repeat(4,1fr);gap:6px;align-items:center;}
+.ft-seg-thead span{text-align:center;line-height:1.2;}
+.ft-seg-thead span:first-child{text-align:left;}
+.ft-seg-in{padding:6px 6px;text-align:center;}
 
 .ft-pills{display:flex;gap:6px;}
 .ft-pill{background:${C.bg};border:1px solid ${C.line};color:${C.muted};border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
