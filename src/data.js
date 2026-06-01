@@ -179,6 +179,52 @@ export function sessionVolume(session, bio) {
   return session.exercises.reduce((v, e) => v + exerciseVolume(e, bw), 0);
 }
 
+/* ---- авто-прогрессия нагрузки (фичи #3) ---- */
+// шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
+const LEG_RE = /присед|носк|ног|выпад|гоблет|икр/i;
+export function stepKg(name) { return LEG_RE.test(name || "") ? 5 : 2.5; }
+
+// подходы из самой свежей сессии, где встречалось это (canon) упражнение
+export function lastExerciseSets(sessions, name) {
+  const cn = canon(name);
+  const hits = (sessions || [])
+    .filter((s) => s.exercises.some((e) => canon(e.n) === cn))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.id || "").localeCompare(a.id || ""));
+  if (!hits.length) return null;
+  const e = hits[0].exercises.find((x) => canon(x.n) === cn);
+  return e ? e.sets : null;
+}
+
+// форма как initForm, но веса/повторы предзаполнены из последней тренировки (если была)
+export function suggestForm(tpl, sessions) {
+  return tpl.ex.map((e) => {
+    const n = canon(e.n);
+    const hist = lastExerciseSets(sessions, n);
+    if (hist && hist.length) {
+      return { n, sets: hist.map((s) => ({ weight: s.weight ?? "", reps: s.reps ?? "", hint: "" })) };
+    }
+    return {
+      n,
+      sets: e.s.map((arr) => ({
+        weight: arr[0] ? arr[0] : "",
+        reps: arr[1] != null ? arr[1] : "",
+        hint: arr[2] || "",
+      })),
+    };
+  });
+}
+
+// мета для чипа прогрессии: текст прошлой тренировки + шаг прибавки
+export function exerciseMeta(sessions, name) {
+  const step = stepKg(name);
+  const hist = lastExerciseSets(sessions, name);
+  if (!hist || !hist.length) return { lastText: "", step };
+  const lastText = hist
+    .map((s) => (s.weight ? s.weight : 0) + "×" + (s.reps ?? "—"))
+    .join(" / ");
+  return { lastText, step };
+}
+
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
 export function normSession(s) {
   const map = new Map();
@@ -292,6 +338,11 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-select-wrap{position:relative;flex:1;min-width:0;}
 .ft-select{appearance:none;width:100%;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:8px 30px 8px 10px;font-size:13px;cursor:pointer;outline:none;}
 .ft-select-ic{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:${C.muted};pointer-events:none;}
+
+/* авто-прогрессия чип (фичи #3) */
+.ft-progress-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin:-2px 0 9px;padding:5px 9px;background:rgba(200,242,63,.1);border:1px solid ${C.accent2};color:${C.accent};border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;overflow:hidden;}
+.ft-progress-chip:hover{background:rgba(200,242,63,.18);}
+.ft-progress-chip .ft-muted{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 /* program editor (фичи #2) */
 .ft-prog-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}

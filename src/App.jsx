@@ -11,8 +11,9 @@ import {
 
 import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
-  canon, normSession, uid, today, fmtDate, num,
+  normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
+  suggestForm, exerciseMeta,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -295,7 +296,7 @@ function Stat({ label, value, accent, trend, invert }) {
 function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTemplate, removeTemplate }) {
   const [tplId, setTplId] = useState(templates[0].id);
   const [date, setDate] = useState(today());
-  const [form, setForm] = useState(() => initForm(templates[0]));
+  const [form, setForm] = useState(() => suggestForm(templates[0], sessions));
   const [openHist, setOpenHist] = useState(false);
   const [toast, setToast] = useState("");
   const [confirmId, setConfirmId] = useState(null);
@@ -322,14 +323,33 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     if (!editingId && !templates.some((t) => t.id === tplId)) {
       const tpl = templates[0];
       setTplId(tpl.id);
-      setForm(initForm(tpl));
+      setForm(suggestForm(tpl, sessions));
     }
   }, [templates]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // мета прогрессии по упражнениям текущей формы (имена + история)
+  const exNames = form.map((e) => e.n).join("|");
+  const exMeta = useMemo(() => {
+    const m = {};
+    exNames.split("|").forEach((n) => { if (n) m[n] = exerciseMeta(sessions, n); });
+    return m;
+  }, [exNames, sessions]);
+
+  function bumpWeights(ei, step) {
+    setForm((f) => {
+      const c = structuredClone(f);
+      c[ei].sets = c[ei].sets.map((s) => ({
+        ...s,
+        weight: (s.weight === "" || s.weight == null) ? s.weight : Number(s.weight) + step,
+      }));
+      return c;
+    });
+  }
 
   function pick(id) {
     const tpl = templates.find((t) => t.id === id) || templates[0];
     setTplId(tpl.id);
-    setForm(initForm(tpl));
+    setForm(suggestForm(tpl, sessions));
     setEditingId(null);
   }
   function startEdit(s) {
@@ -348,7 +368,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     setEditingId(null);
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
     setTplId(tpl.id);
-    setForm(initForm(tpl));
+    setForm(suggestForm(tpl, sessions));
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -392,7 +412,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const wasEditing = !!editingId;
     try {
       await addSession(session);
-      setForm(initForm(tpl));
+      setForm(suggestForm(tpl, sessions));
       setEditingId(null);
       setOpenHist(true);
       flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
@@ -465,6 +485,13 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
               <Trash2 size={15} />
             </button>
           </div>
+          {exMeta[e.n]?.lastText && (
+            <button className="ft-progress-chip" onClick={() => bumpWeights(ei, exMeta[e.n].step)}
+              title={`Прибавить ${exMeta[e.n].step} кг ко всем подходам`}>
+              <ArrowUp size={12} /> +{exMeta[e.n].step} кг
+              <span className="ft-muted">· в прошлый раз {exMeta[e.n].lastText}</span>
+            </button>
+          )}
           {BW_EXERCISES.has(e.n) && (
             <div className="ft-mini ft-muted ft-bw-hint">
               Вес тела учитывается автоматически. Помощь — со знаком «+», утяжелитель — со знаком «−».
@@ -561,17 +588,6 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       )}
     </div>
   );
-}
-
-function initForm(tpl) {
-  return tpl.ex.map((e) => ({
-    n: canon(e.n),
-    sets: e.s.map((arr) => ({
-      weight: arr[0] ? arr[0] : "",
-      reps: arr[1] != null ? arr[1] : "",
-      hint: arr[2] || "",
-    })),
-  }));
 }
 
 /* ---------------------------- PROGRAM EDITOR ---------------------------- */
