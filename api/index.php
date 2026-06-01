@@ -134,18 +134,27 @@ function handleBio(PDO $pdo, string $method, ?string $id): void
         if ($bid === '' || !validDate($date)) {
             Response::error('Некорректный замер', 422);
         }
+        // учитываем только реально существующие колонки: если migration_002
+        // ещё не накатана, новые метрики/segments просто пропускаются, а не
+        // роняют весь запрос.
+        $existing = bioColumns($pdo);
         $vals = [
             ':id' => $bid,
             ':date' => $date,
             ':note' => (string) ($b['note'] ?? ''),
-            ':segments' => (isset($b['segments']) && is_array($b['segments']) && $b['segments'])
-                ? json_encode($b['segments'], JSON_UNESCAPED_UNICODE) : null,
         ];
-        foreach ($metrics as $m) {
+        $fixed = ['id', 'date', 'note'];
+        if (in_array('segments', $existing, true)) {
+            $vals[':segments'] = (isset($b['segments']) && is_array($b['segments']) && $b['segments'])
+                ? json_encode($b['segments'], JSON_UNESCAPED_UNICODE) : null;
+            $fixed[] = 'segments';
+        }
+        $activeMetrics = array_values(array_filter($metrics, fn ($m) => in_array($m, $existing, true)));
+        foreach ($activeMetrics as $m) {
             $vals[':' . $m] = (isset($b[$m]) && $b[$m] !== null && $b[$m] !== '') ? (float) $b[$m] : null;
         }
-        // динамический список колонок: фикс. + метрики
-        $cols = array_merge(['id', 'date', 'note', 'segments'], $metrics);
+        // динамический список колонок: фикс. + доступные метрики
+        $cols = array_merge($fixed, $activeMetrics);
         $colList = implode(', ', $cols);
         $phList = implode(', ', array_map(fn ($c) => ':' . $c, $cols));
         $updList = implode(', ', array_map(
@@ -177,6 +186,16 @@ function bioById(PDO $pdo, string $date, array $metrics): array
     $stmt->execute([':date' => $date]);
     $r = $stmt->fetch();
     return $r ? bioRow($r, $metrics) : [];
+}
+
+// имена колонок таблицы bio_entries (кэшируется на время запроса)
+function bioColumns(PDO $pdo): array
+{
+    static $cols = null;
+    if ($cols === null) {
+        $cols = $pdo->query('SHOW COLUMNS FROM bio_entries')->fetchAll(PDO::FETCH_COLUMN);
+    }
+    return $cols;
 }
 
 function bioRow(array $r, array $metrics): array

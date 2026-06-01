@@ -307,7 +307,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr }) {
     setDate(s.date);
     setForm(s.exercises.map((e) => ({
       n: e.n,
-      sets: e.sets.map((x) => ({ weight: x.weight ?? "", reps: x.reps ?? "", hint: "" })),
+      sets: e.sets.map((x) => ({ weight: x.weight ?? "", reps: x.reps ?? "", hint: x.hint ?? "" })),
     })));
     setOpenHist(false);
     setConfirmId(null);
@@ -315,7 +315,9 @@ function Log({ sessions, bio, addSession, removeSession, onErr }) {
   }
   function cancelEdit() {
     setEditingId(null);
-    setForm(initForm(TEMPLATES.find((t) => t.id === tplId)));
+    const tpl = TEMPLATES.find((t) => t.id === tplId) || TEMPLATES[0];
+    setTplId(tpl.id);
+    setForm(initForm(tpl));
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -592,10 +594,6 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
             </label>
           ))}
         </div>
-        <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
-          <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
-        </button>
-        {toast && <div className="ft-toast"><Check size={15} /> {toast}</div>}
         <div className="ft-mini ft-muted" style={{ marginTop: 8 }}>
           Замер на ту же дату перезапишется.
         </div>
@@ -625,10 +623,12 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
             </div>
           ))}
         </div>
-        <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
-          <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
-        </button>
       </div>
+
+      <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
+        <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
+      </button>
+      {toast && <div className="ft-toast"><Check size={15} /> {toast}</div>}
 
       {sorted.map((b) => (
         <div key={b.id} className="ft-card ft-hist">

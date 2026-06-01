@@ -132,11 +132,19 @@ export function bodyweightOn(bio, date) {
   const withW = (bio || []).filter((b) => b && b.weight != null);
   if (!withW.length) return null;
   const t = new Date(date).getTime();
-  let best = null, bestDiff = Infinity;
+  // предпочитаем ближайший замер НЕ ПОЗЖЕ тренировки (вес на тот момент);
+  // более поздний берём только если прошлых замеров нет.
+  let past = null, pastDiff = Infinity;
+  let future = null, futureDiff = Infinity;
   for (const b of withW) {
-    const d = Math.abs(new Date(b.date).getTime() - t);
-    if (d < bestDiff) { bestDiff = d; best = b; }
+    const diff = new Date(b.date).getTime() - t;
+    if (diff <= 0) {
+      if (-diff < pastDiff) { pastDiff = -diff; past = b; }
+    } else if (diff < futureDiff) {
+      futureDiff = diff; future = b;
+    }
   }
+  const best = past || future;
   return best ? Number(best.weight) : null;
 }
 
