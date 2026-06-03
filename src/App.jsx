@@ -8,15 +8,17 @@ import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
   Plus, Trash2, Check, X, ChevronDown, ChevronUp, ArrowUp, ArrowDown,
   LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus, Trophy,
-  Timer, Play, Pause, RotateCcw,
+  Timer, Play, Pause, RotateCcw, Settings,
 } from "lucide-react";
 
 import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume, setLoad,
-  suggestForm, exerciseMeta, prSessionMap,
+  suggestForm, exerciseMeta, lastExerciseSets, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
+  exerciseE1rmBest, detectSessionPRs, suggestProgression, recompTrend,
+  SETTINGS_DEFAULTS, withSettings,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -35,6 +37,31 @@ function LogoMark() {
   );
 }
 
+/* ---------------------------- PR helpers (фича #2) ---------------------------- */
+// заголовок-подсказка для кубка: перечень упражнений с рекордами
+function prTitle(prs) {
+  if (!prs || !prs.length) return "Личный рекорд";
+  const names = [...new Set(prs.map((p) => p.name))];
+  return "Личный рекорд: " + names.join(", ");
+}
+// текст празднования: «Новый рекорд: Жим штанги лёжа — 75 кг · e1RM 91»
+function prCelebration(prs) {
+  const byName = new Map();
+  for (const p of prs) {
+    if (!byName.has(p.name)) byName.set(p.name, {});
+    byName.get(p.name)[p.kind] = p;
+  }
+  const parts = [];
+  for (const [name, kinds] of byName) {
+    const bits = [];
+    if (kinds.weight) bits.push(Math.round(kinds.weight.value) + " кг");
+    if (kinds.e1rm) bits.push("e1RM " + Math.round(kinds.e1rm.value));
+    if (kinds.volume && !bits.length) bits.push("объём " + Math.round(kinds.volume.value));
+    parts.push(name + " — " + bits.join(" · "));
+  }
+  return "Новый рекорд: " + parts.slice(0, 2).join("; ");
+}
+
 /* ================================================================== */
 export default function App() {
   const [status, setStatus] = useState("checking"); // checking | gate | ready
@@ -44,15 +71,30 @@ export default function App() {
   const [bio, setBio] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [syncErr, setSyncErr] = useState("");
+  const [settings, setSettings] = useState(SETTINGS_DEFAULTS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const restRef = useRef(null); // контроллер таймера: { start(sec) }
 
   async function load() {
     const [rawS, rawB] = await Promise.all([api.getSessions(), api.getBio()]);
     setSessions((Array.isArray(rawS) ? rawS : []).map(normSession));
     setBio(Array.isArray(rawB) ? rawB : []);
-    // программы грузим толерантно: отсутствие эндпоинта/миграции не должно ронять загрузку
+    // программы и настройки грузим толерантно: отсутствие эндпоинта/миграции не должно ронять загрузку
     let rawT = [];
     try { rawT = await api.getTemplates(); } catch { rawT = []; }
     setTemplates((Array.isArray(rawT) ? rawT : []).map((t) => ({ ...t, builtin: false })));
+    try { setSettings(withSettings(await api.getSettings())); } catch { setSettings(SETTINGS_DEFAULTS); }
+  }
+
+  async function saveSettings(next) {
+    const merged = withSettings(next);
+    setSettings(merged); // оптимистично
+    try { await api.saveSettings(merged); setSyncErr(""); }
+    catch (e) { setSyncErr(e.message || "Не удалось сохранить настройки"); }
+  }
+  // авто-старт таймера отдыха из формы тренировки (фича #5)
+  function startRest() {
+    if (settings.autoStartRest) restRef.current?.start(settings.restSeconds);
   }
 
   // первичная проверка токена + загрузка
@@ -144,6 +186,9 @@ export default function App() {
             <span className={"ft-syncchip" + (syncErr ? " err" : "")}>
               <span className="ft-syncchip-dot" />{syncErr ? "ошибка" : "синк"}
             </span>
+            <button className="ft-icon-b" onClick={() => setSettingsOpen(true)} title="Настройки">
+              <Settings size={16} />
+            </button>
             <button className="ft-logout" onClick={logout} title="Выйти">
               <LogOut size={14} /> выход
             </button>
@@ -168,13 +213,17 @@ export default function App() {
 
       <main className="ft-main">
         {tab === "home" && <Home sessions={sessions} bio={bio} go={setTab} templates={allTemplates} />}
-        {tab === "log" && <Log sessions={sessions} bio={bio} addSession={addSession} removeSession={removeSession} onErr={setSyncErr} templates={allTemplates} addTemplate={addTemplate} removeTemplate={removeTemplate} />}
+        {tab === "log" && <Log sessions={sessions} bio={bio} addSession={addSession} removeSession={removeSession} onErr={setSyncErr} templates={allTemplates} addTemplate={addTemplate} removeTemplate={removeTemplate} settings={settings} startRest={startRest} />}
         {tab === "body" && <Body bio={bio} upsertBio={upsertBio} removeBio={removeBio} onErr={setSyncErr} />}
         {tab === "progress" && <Progress sessions={sessions} bio={bio} />}
       </main>
 
+      {settingsOpen && (
+        <SettingsPanel settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)} />
+      )}
+
       {/* таймер отдыха — на уровне App, чтобы запущенный отсчёт переживал смену вкладок */}
-      <RestTimer />
+      <RestTimer controllerRef={restRef} />
     </div>
   );
 }
@@ -212,6 +261,58 @@ function Gate({ onAuth, error }) {
   );
 }
 
+/* ---------------------------- SETTINGS PANEL ---------------------------- */
+function SettingsPanel({ settings, onSave, onClose }) {
+  const [f, setF] = useState(() => withSettings(settings));
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  function save() { onSave(f); onClose(); }
+  return (
+    <div className="ft-prog-overlay" onClick={onClose}>
+      <div className="ft-prog-editor" onClick={(e) => e.stopPropagation()}>
+        <div className="ft-row" style={{ marginBottom: 14 }}>
+          <strong>Настройки</strong>
+          <button className="ft-icon-b" onClick={onClose} title="Закрыть"><X size={16} /></button>
+        </div>
+
+        <div className="ft-set-group">
+          <label className="ft-set-row">
+            <span>Отдых по умолчанию, сек</span>
+            <input className="ft-input ft-mono" type="number" min="10" max="600" step="5"
+              value={f.restSeconds}
+              onChange={(e) => set("restSeconds", Math.max(10, num(e.target.value) || 90))} />
+          </label>
+          <label className="ft-set-row">
+            <span>Авто-старт таймера после подхода</span>
+            <input type="checkbox" checked={!!f.autoStartRest}
+              onChange={(e) => set("autoStartRest", e.target.checked)} />
+          </label>
+          <label className="ft-set-row">
+            <span>Шаг прогрессии веса</span>
+            <div className="ft-select-wrap">
+              <select className="ft-select" value={f.progressionStep == null ? "auto" : String(f.progressionStep)}
+                onChange={(e) => set("progressionStep", e.target.value === "auto" ? null : Number(e.target.value))}>
+                <option value="auto">Авто (2.5 / 5 кг)</option>
+                <option value="1.25">1.25 кг</option>
+                <option value="2.5">2.5 кг</option>
+                <option value="5">5 кг</option>
+              </select>
+              <ChevronDown size={14} className="ft-select-ic" />
+            </div>
+          </label>
+        </div>
+
+        <div className="ft-muted ft-mini" style={{ marginTop: 10 }}>
+          Пуш-напоминания — в следующем обновлении.
+        </div>
+
+        <button className="ft-btn ft-save" style={{ marginTop: 14 }} onClick={save}>
+          <Check size={16} /> Сохранить
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------- OVERVIEW ---------------------------- */
 function Home({ sessions, bio, go, templates }) {
   const sorted = useMemo(() => [...sessions].sort((a, b) => b.date.localeCompare(a.date)), [sessions]);
@@ -222,6 +323,7 @@ function Home({ sessions, bio, go, templates }) {
   const hero = useMemo(() => heroLift(sessions, bio), [sessions, bio]);
   const tonnage = useMemo(() => weeklyTonnage(sessions, bio), [sessions, bio]);
   const fatInfo = useMemo(() => fatTrend(bio), [bio]);
+  const recomp = useMemo(() => recompTrend(bio, 90), [bio]);
 
   return (
     <div>
@@ -296,13 +398,43 @@ function Home({ sessions, bio, go, templates }) {
         </div>
       </div>
 
+      {/* РЕКОМПОЗИЦИЯ — тренд жир/мышцы за 90 дней (фича #4) */}
+      {recomp && (
+        <div className="ft-card">
+          <div className="ft-section-h ft-row">
+            <span>Рекомпозиция · 90 дней</span>
+            <span className={"ft-verdict ft-verdict-" + recomp.tone}>{recomp.verdict}</span>
+          </div>
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={recomp.series} margin={{ top: 6, right: 2, left: -10, bottom: 0 }}>
+              <CartesianGrid stroke={C.line} vertical={false} />
+              <XAxis dataKey="label" stroke={C.muted} fontSize={11} tickLine={false}
+                axisLine={false} interval="preserveStartEnd" />
+              <YAxis yAxisId="fat" stroke={C.pink} fontSize={10} tickLine={false} axisLine={false}
+                width={28} domain={["auto", "auto"]} />
+              <YAxis yAxisId="mus" orientation="right" stroke={C.blue} fontSize={10} tickLine={false}
+                axisLine={false} width={28} domain={["auto", "auto"]} />
+              <Tooltip
+                contentStyle={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 }}
+                labelStyle={{ color: C.muted }}
+                formatter={(v, n) => [n === "Жир" ? `${v} %` : `${v} кг`, n]} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line yAxisId="fat" name="Жир" dataKey="fat" stroke={C.pink} strokeWidth={2.5}
+                dot={{ r: 2.5, fill: C.pink }} connectNulls />
+              <Line yAxisId="mus" name="Мышцы" dataKey="muscle" stroke={C.blue} strokeWidth={2.5}
+                dot={{ r: 2.5, fill: C.blue }} connectNulls />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
       {/* ПОСЛЕДНИЕ */}
       {last && (
         <div className="ft-card">
           <div className="ft-section-h ft-row">
             <span>Последние</span>
             {prMap.get(last.id) && (
-              <span className="ft-pr" title={"Личный рекорд: " + prMap.get(last.id).join(", ")}>
+              <span className="ft-pr" title={prTitle(prMap.get(last.id))}>
                 <Trophy size={13} />
               </span>
             )}
@@ -347,12 +479,13 @@ function Home({ sessions, bio, go, templates }) {
 }
 
 /* ---------------------------- LOG ---------------------------- */
-function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTemplate, removeTemplate }) {
+function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTemplate, removeTemplate, settings, startRest }) {
   const [tplId, setTplId] = useState(templates[0].id);
   const [date, setDate] = useState(today());
   const [form, setForm] = useState(() => suggestForm(templates[0], sessions));
   const [openHist, setOpenHist] = useState(false);
   const [toast, setToast] = useState("");
+  const [toastPr, setToastPr] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -361,6 +494,8 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   // упражнения, к которым уже применили «+вес» в текущей форме — чип скрывается,
   // чтобы нельзя было случайно прибавить вес несколько раз
   const [appliedNames, setAppliedNames] = useState(() => new Set());
+  // упражнения, к которым применили предложение прогрессии (фича #3)
+  const [appliedProg, setAppliedProg] = useState(() => new Set());
 
   const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const lastDates = useMemo(() => {
@@ -374,7 +509,13 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const idx = templates.findIndex((t) => t.id === last.templateId);
     return idx < 0 ? templates[0].id : templates[(idx + 1) % templates.length].id;
   }, [sessions, templates]);
-  function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2400); }
+  const toastTimer = useRef(null);
+  function flash(msg, pr = false) {
+    setToast(msg); setToastPr(pr);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => { setToast(""); setToastPr(false); }, pr ? 4200 : 2400);
+  }
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   // если выбранная (кастомная) программа была удалена — откатываемся на первую
   useEffect(() => {
@@ -394,6 +535,15 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     return m;
   }, [exNamesKey, sessions]);
 
+  // предложение прогрессии по каждому упражнению формы (фича #3)
+  const progMap = useMemo(() => form.map((e) => {
+    const meta = exMeta[e.n];
+    if (!meta || !meta.lastText) return null;
+    const hint = e.sets.find((s) => s.hint)?.hint || "";
+    const step = settings?.progressionStep ?? meta.step;
+    return suggestProgression(e.n, lastExerciseSets(sessions, e.n), hint, step);
+  }), [form, exMeta, sessions, settings]);
+
   function bumpWeights(ei, step) {
     const name = form[ei]?.n;
     if (name && appliedNames.has(name)) return; // уже применяли — игнорируем
@@ -409,12 +559,28 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     if (name) setAppliedNames((prev) => new Set(prev).add(name));
   }
 
+  // применить предложение прогрессии: проставить вес/целевые повторы во все подходы (фича #3)
+  function applyProgression(ei, prog) {
+    const name = form[ei]?.n;
+    if (!prog || (name && appliedProg.has(name))) return;
+    setForm((f) => {
+      const c = structuredClone(f);
+      c[ei].sets = c[ei].sets.map((s) => ({
+        ...s,
+        weight: prog.weight != null ? prog.weight : s.weight,
+        reps: prog.reps != null ? prog.reps : s.reps,
+      }));
+      return c;
+    });
+    if (name) setAppliedProg((prev) => new Set(prev).add(name));
+  }
+
   function pick(id) {
     const tpl = templates.find((t) => t.id === id) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
     setEditingId(null);
-    setAppliedNames(new Set());
+    setAppliedNames(new Set()); setAppliedProg(new Set());
   }
   function startEdit(s) {
     setEditingId(s.id);
@@ -426,7 +592,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     })));
     setOpenHist(false);
     setConfirmId(null);
-    setAppliedNames(new Set());
+    setAppliedNames(new Set()); setAppliedProg(new Set());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function cancelEdit() {
@@ -434,7 +600,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
-    setAppliedNames(new Set());
+    setAppliedNames(new Set()); setAppliedProg(new Set());
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -450,6 +616,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       c[ei].sets.push({ weight: last.weight, reps: last.reps, hint: "" });
       return c;
     });
+    startRest?.(); // авто-старт таймера отдыха (если включён в настройках) — фича #5
   }
   function delSet(ei, si) {
     setForm((f) => {
@@ -478,11 +645,14 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const wasEditing = !!editingId;
     try {
       await addSession(session);
+      // празднование PR: сравниваем с историей без самой сессии (ресейв не зажигает заново)
+      const prs = detectSessionPRs(sessions, normSession(session), bio);
       setForm(suggestForm(tpl, sessions));
       setEditingId(null);
-      setAppliedNames(new Set());
+      setAppliedNames(new Set()); setAppliedProg(new Set());
       setOpenHist(true);
-      flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
+      if (prs.length) flash(prCelebration(prs), true);
+      else flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
     } catch (e) {
       onErr(e.message || "Не удалось сохранить");
       flash("Ошибка сохранения");
@@ -553,7 +723,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
                     <strong>{tpl?.name || "Тренировка"}</strong>
                     {prMap.get(s.id) && (
                       <span className="ft-pr" style={{ marginLeft: 6 }}
-                        title={"Личный рекорд: " + prMap.get(s.id).join(", ")}>
+                        title={prTitle(prMap.get(s.id))}>
                         <Trophy size={13} />
                       </span>
                     )}
@@ -622,6 +792,18 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
               </button>
             )
           )}
+          {progMap[ei] && progMap[ei].note && (
+            <div className="ft-prog-sugg">
+              <span className="ft-prog-sugg-note">{progMap[ei].note}</span>
+              {appliedProg.has(e.n) ? (
+                <span className="ft-prog-sugg-done"><Check size={12} /> применено</span>
+              ) : (
+                <button className="ft-prog-sugg-b" onClick={() => applyProgression(ei, progMap[ei])}>
+                  применить
+                </button>
+              )}
+            </div>
+          )}
           {BW_EXERCISES.has(e.n) && (
             <div className="ft-mini ft-muted ft-bw-hint">
               Вес тела учитывается автоматически. Помощь — со знаком «+», утяжелитель — со знаком «−».
@@ -664,7 +846,9 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
         <Check size={17} /> {saving ? "Сохранение…" : editingId ? "Сохранить изменения" : "Сохранить тренировку"}
       </button>
       {toast && (
-        <div className="ft-toast"><Check size={15} /> {toast}</div>
+        <div className={"ft-toast" + (toastPr ? " pr" : "")}>
+          {toastPr ? <Trophy size={15} /> : <Check size={15} />} {toast}
+        </div>
       )}
     </div>
   );
@@ -870,10 +1054,20 @@ function restBeep() {
   } catch { /* звук необязателен */ }
 }
 
-function RestTimer() {
+// уведомление, если приложение свёрнуто/вкладка скрыта (Web Notifications, без сервера)
+function notifyRestDone() {
+  try {
+    if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+      new Notification("Отдых окончен", { body: "Пора к следующему подходу", tag: "ft-rest" });
+    }
+  } catch { /* уведомление необязательно */ }
+}
+
+function RestTimer({ controllerRef }) {
   const [remaining, setRemaining] = useState(0);
   const [running, setRunning] = useState(false);
   const [open, setOpen] = useState(false);
+  const [done, setDone] = useState(false); // визуальная вспышка по нулю
   const tick = useRef(null);
 
   useEffect(() => {
@@ -885,27 +1079,42 @@ function RestTimer() {
   }, [running]);
 
   // срабатывание ровно при переходе в 0 на работающем таймере;
-  // ручной «Сброс» гасит running одновременно с remaining → бипа не будет
+  // ручной «Сброс» гасит running одновременно с remaining → сигнала не будет
   useEffect(() => {
     if (running && remaining === 0) {
       setRunning(false);
-      restBeep();
-      navigator.vibrate?.(200);
+      setDone(true);          // вспышка — всегда (главный сигнал на iOS)
+      restBeep();             // звук
+      navigator.vibrate?.([200, 100, 200]); // вибро — где поддерживается
+      notifyRestDone();       // уведомление, если в фоне
     }
   }, [remaining, running]);
 
-  function start(sec) { setRemaining(sec); setRunning(true); setOpen(true); }
+  function start(sec) {
+    setDone(false);
+    setRemaining(sec); setRunning(true); setOpen(true);
+    // мягкий опт-ин на уведомления при первом запуске
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }
   function toggle() { if (remaining > 0) setRunning((v) => !v); }
-  function reset() { setRunning(false); setRemaining(0); }
+  function reset() { setRunning(false); setRemaining(0); setDone(false); }
   function hide() { reset(); setOpen(false); }
 
-  const expanded = open || running || remaining > 0;
+  // контроллер для авто-старта из формы тренировки (фича #5)
+  useEffect(() => {
+    if (controllerRef) controllerRef.current = { start };
+    return () => { if (controllerRef) controllerRef.current = null; };
+  }, [controllerRef]);
+
+  const expanded = open || running || remaining > 0 || done;
 
   return (
-    <div className={"ft-rest-timer" + (expanded ? " open" : "")}>
+    <div className={"ft-rest-timer" + (expanded ? " open" : "") + (done ? " done" : "")}>
       {expanded ? (
         <>
-          <span className="ft-rest-time ft-mono">{fmtClock(remaining)}</span>
+          <span className="ft-rest-time ft-mono">{done ? "Отдых!" : fmtClock(remaining)}</span>
           <div className="ft-rest-presets">
             {REST_PRESETS.map((p) => (
               <button key={p} className="ft-rest-preset" onClick={() => start(p)}>
@@ -1150,13 +1359,18 @@ function Progress({ sessions, bio }) {
             return { w: load == null ? null : Math.round(load), reps: num(st.reps) };
           })
           .filter((r) => r.w != null || r.reps != null);
+        const best = exerciseE1rmBest(e, bw);
         return {
           date: s.date, label: fmtDate(s.date), setRows,
           volume: Math.round(exerciseVolume(e, bw)), top: exerciseTop(e, bw),
+          e1rm: Math.round(best.value), e1rmSet: best.w ? { w: Math.round(best.w), reps: best.reps } : null,
         };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [ex, sessions, bio]);
+
+  // для e1RM строим только точки с валидным значением (BW/нечисловые повторы пропускаются)
+  const e1rmData = useMemo(() => exData.filter((p) => p.e1rm > 0), [exData]);
 
   const volData = useMemo(() =>
     [...sessions]
@@ -1190,11 +1404,16 @@ function Progress({ sessions, bio }) {
               <div className="ft-pills">
                 <button className={"ft-pill" + (metric === "volume" ? " on" : "")} onClick={() => setMetric("volume")}>Объём</button>
                 <button className={"ft-pill" + (metric === "top" ? " on" : "")} onClick={() => setMetric("top")}>Макс. вес</button>
+                <button className={"ft-pill" + (metric === "e1rm" ? " on" : "")} onClick={() => setMetric("e1rm")}>e1RM</button>
               </div>
             </div>
-            <Chart data={exData} dataKey={metric} color={C.accent}
-              unit={metric === "top" ? "кг" : ""} type="line"
-              tooltipContent={metric === "volume" ? SetBreakdownTip : undefined} />
+            {metric === "e1rm" && e1rmData.length === 0 ? (
+              <div className="ft-muted ft-mini">Нет данных для оценки 1ПМ (нужен рабочий вес и числовые повторы).</div>
+            ) : (
+              <Chart data={metric === "e1rm" ? e1rmData : exData} dataKey={metric} color={C.accent}
+                unit={metric === "top" || metric === "e1rm" ? "кг" : ""} type="line"
+                tooltipContent={metric === "volume" ? SetBreakdownTip : metric === "e1rm" ? E1rmTip : undefined} />
+            )}
           </>
         )}
       </div>
@@ -1297,6 +1516,21 @@ function SetBreakdownTip({ active, payload }) {
       <div className="ft-mono" style={{ color: C.accent, fontWeight: 700, marginTop: 4 }}>
         {p.volume} кг
       </div>
+    </div>
+  );
+}
+
+// тултип режима «e1RM»: дата, лучший подход и оценка 1ПМ
+function E1rmTip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 12 }}>
+      <div style={{ color: C.muted, marginBottom: 4 }}>{p.label}</div>
+      {p.e1rmSet && (
+        <div className="ft-mono" style={{ color: C.txt }}>{p.e1rmSet.w} × {p.e1rmSet.reps}</div>
+      )}
+      <div className="ft-mono" style={{ color: C.accent, fontWeight: 700, marginTop: 4 }}>e1RM {p.e1rm} кг</div>
     </div>
   );
 }

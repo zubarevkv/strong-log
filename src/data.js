@@ -98,6 +98,18 @@ export const today = () => new Date().toISOString().slice(0, 10);
 export const fmtDate = (d) => new Date(d).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 export const num = (v) => (v === "" || v == null ? null : Number(v));
 
+/* ---- пользовательские настройки (общий фундамент фич #3, #5 и будущих пушей) ----
+ * Хранятся на сервере (таблица settings, эндпоинт /settings). push-поля заведены заранее. */
+export const SETTINGS_DEFAULTS = {
+  restSeconds: 90,        // длительность таймера отдыха по умолчанию
+  autoStartRest: true,    // авто-старт таймера по завершении подхода
+  progressionStep: null,  // null = авто (stepKg по упражнению)
+  pushOptIn: false,       // фаза B
+  pushHour: 18,           // фаза B
+  pushThresholdDays: 3,   // фаза B
+};
+export const withSettings = (s) => ({ ...SETTINGS_DEFAULTS, ...(s || {}) });
+
 /* ---- единые названия упражнений (синонимы -> канон) ----
  * Применяется на клиенте при сейве. Дублирование на бэкенде и в /import —
  * шаг 6 спеки (TODO). Спорные слияния помечены в HANDOFF.md §5. */
@@ -179,10 +191,55 @@ export function sessionVolume(session, bio) {
   return session.exercises.reduce((v, e) => v + exerciseVolume(e, bw), 0);
 }
 
-/* ---- личные рекорды (графики #1) ----
- * Идём по сессиям по возрастанию даты, ведём best[canon] = макс. эфф. нагрузка.
- * Рекорд засчитываем только если ранее уже был best и текущий top строго его
- * превышает (первое появление упражнения рекордом не считаем). */
+/* ---- оценка 1ПМ по Эпли (фича #1) ----
+ * e1RM = вес × (1 + повт/30); при 1 повторе = вес. */
+export const e1rm = (w, reps) => (reps <= 1 ? w : w * (1 + reps / 30));
+
+// макс. e1RM по подходам + подход, давший его: { value, w, reps } (value 0 если нет валидных).
+// Пропускаем нечисловые повторы («до отказа»), неположительную нагрузку и BW-упражнения
+// («свой вес» — не весовая метрика).
+export function exerciseE1rmBest(ex, bw) {
+  const out = { value: 0, w: null, reps: null };
+  if (BW_EXERCISES.has(ex.n)) return out;
+  for (const s of ex.sets) {
+    const load = setLoad(s, ex.n, bw);
+    const r = num(s.reps);
+    if (load == null || load <= 0 || r == null || !Number.isFinite(r) || r <= 0) continue;
+    const v = e1rm(load, r);
+    if (v > out.value) { out.value = v; out.w = load; out.reps = r; }
+  }
+  return out;
+}
+export const exerciseE1rm = (ex, bw) => exerciseE1rmBest(ex, bw).value;
+
+/* ---- личные рекорды (фича #2) ----
+ * Три типа PR на сессию (по каноническому имени, сравнение со всей прошлой историей):
+ *   weight — макс. рабочий вес, e1rm — макс. оценка 1ПМ, volume — макс. объём упражнения за сессию.
+ * Рекорд засчитываем только если ранее уже был best и текущее значение строго его
+ * превышает (первое появление упражнения рекордом не считаем; равенство — не PR).
+ * Весовые типы (weight/e1rm) не применяем к BW-упражнениям («свой вес»). */
+export const PR_KINDS = [
+  { kind: "weight", label: "вес", unit: "кг", calc: exerciseTop, skipBW: true },
+  { kind: "e1rm", label: "e1RM", unit: "кг", calc: exerciseE1rm, skipBW: true },
+  { kind: "volume", label: "объём", unit: "кг", calc: exerciseVolume, skipBW: false },
+];
+
+// общий проход: для каждого упражнения сессии обновляем best[canon][kind] и собираем побитые рекорды
+function scanSessionPRs(e, bw, best) {
+  const cn = canon(e.n);
+  const b = best[cn] || (best[cn] = {});
+  const prs = [];
+  for (const { kind, calc, skipBW, label, unit } of PR_KINDS) {
+    if (skipBW && BW_EXERCISES.has(cn)) continue;
+    const val = calc(e, bw);
+    if (!val || val <= 0) continue;
+    if (b[kind] == null) { b[kind] = val; continue; } // первое появление — не PR
+    if (val > b[kind]) { b[kind] = val; prs.push({ name: e.n, kind, label, unit, value: val }); }
+  }
+  return prs;
+}
+
+// Map<sessionId, PR[]> — PR[] непуст только для сессий, где что-то побито
 export function prSessionMap(sessions, bio) {
   const out = new Map();
   const best = {};
@@ -192,16 +249,42 @@ export function prSessionMap(sessions, bio) {
   for (const s of sorted) {
     const bw = bodyweightOn(bio, s.date);
     const prs = [];
-    for (const e of s.exercises) {
-      const cn = canon(e.n);
-      const top = exerciseTop(e, bw);
-      if (!top) continue;
-      if (best[cn] == null) { best[cn] = top; continue; }
-      if (top > best[cn]) { best[cn] = top; prs.push(e.n); }
-    }
+    for (const e of s.exercises) prs.push(...scanSessionPRs(e, bw, best));
     if (prs.length) out.set(s.id, prs);
   }
   return out;
+}
+
+// PR именно этой сессии: best строим из истории БЕЗ неё самой (по id) — ресейв не зажигает заново.
+export function detectSessionPRs(history, session, bio) {
+  const best = {};
+  const past = (history || []).filter((s) => s.id !== session.id);
+  for (const s of past) {
+    const bw = bodyweightOn(bio, s.date);
+    for (const e of s.exercises) {
+      const cn = canon(e.n);
+      const b = best[cn] || (best[cn] = {});
+      for (const { kind, calc, skipBW } of PR_KINDS) {
+        if (skipBW && BW_EXERCISES.has(cn)) continue;
+        const val = calc(e, bw);
+        if (val > 0) b[kind] = Math.max(b[kind] || 0, val);
+      }
+    }
+  }
+  const bw = bodyweightOn(bio, session.date);
+  const prs = [];
+  for (const e of session.exercises) {
+    const cn = canon(e.n);
+    const b = best[cn];
+    for (const { kind, calc, skipBW, label, unit } of PR_KINDS) {
+      if (skipBW && BW_EXERCISES.has(cn)) continue;
+      const val = calc(e, bw);
+      if (!val || val <= 0) continue;
+      if (!b || b[kind] == null) continue; // первого появления упражнения не празднуем
+      if (val > b[kind]) prs.push({ name: e.n, kind, label, unit, value: val });
+    }
+  }
+  return prs;
 }
 
 /* ---- авто-прогрессия нагрузки (фичи #3) ---- */
@@ -256,6 +339,41 @@ export function exerciseMeta(sessions, name) {
     .map((s) => (s.weight ? s.weight : 0) + "×" + (s.reps ?? "—"))
     .join(" / ");
   return { lastText, step };
+}
+
+// диапазон повторов из hint шаблона («6–8», «8», «8-10») → { min, max } | null
+function parseRepRange(hint) {
+  const nums = String(hint || "").match(/\d+/g);
+  if (!nums) return null;
+  const arr = nums.map(Number);
+  return { min: Math.min(...arr), max: Math.max(...arr) };
+}
+
+// предложение прогрессии (двойная прогрессия) по последней тренировке упражнения.
+// Если все подходы достигли верха диапазона повторов → +step по весу (цель — низ диапазона);
+// иначе тот же вес, цель — добить повторы до верха. BW — только по повторам.
+// Возвращает { weight, reps, bumped, note } | null.
+export function suggestProgression(name, lastSets, hint, step) {
+  const sets = (lastSets || []).filter((s) => num(s.weight) != null || num(s.reps) != null);
+  if (!sets.length) return null;
+  const reps = sets.map((s) => num(s.reps)).filter((r) => r != null && Number.isFinite(r));
+  const range = parseRepRange(hint);
+  const top = range ? range.max : (reps.length ? Math.max(...reps) : null);
+  const bottom = range ? range.min : top;
+  const allHitTop = top != null && reps.length === sets.length && reps.every((r) => r >= top);
+  const isBW = BW_EXERCISES.has(canon(name));
+  if (isBW) {
+    const target = allHitTop && top != null ? top + 1 : top;
+    if (target == null) return null;
+    return { weight: null, reps: target, bumped: !!allHitTop, note: `→ цель ${target} повт` };
+  }
+  const lastW = num(sets[sets.length - 1].weight) || num(sets[0].weight) || 0;
+  if (allHitTop && lastW > 0) {
+    const w = +(lastW + (step || stepKg(name))).toFixed(2);
+    return { weight: w, reps: bottom, bumped: true, note: `→ попробуй ${w}×${bottom}` };
+  }
+  if (top == null) return null;
+  return { weight: lastW || null, reps: top, bumped: false, note: `→ добей повторы до ${top}` };
 }
 
 /* ---- метрики экрана «Обзор» ---- */
@@ -342,6 +460,53 @@ export function fatTrend(bio) {
   if (!base && withFat.length > 1) base = withFat[withFat.length - 1];
   const delta = base ? +(latest.fat - base.fat).toFixed(1) : null;
   return { value: latest.fat, delta };
+}
+
+/* ---- дашборд рекомпозиции (фича #4) ---- */
+// наклон линейной регрессии (МНК) по [{x,y}]; null если <2 точек или нулевая дисперсия x
+export function linregSlope(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const { x, y } of points) { sx += x; sy += y; sxx += x * x; sxy += x * y; }
+  const dx = n * sxx - sx * sx;
+  if (dx === 0) return null;
+  return (n * sxy - sx * sy) / dx;
+}
+
+const dirOf = (slope, thr) => (slope == null || Math.abs(slope) < thr ? 0 : slope > 0 ? 1 : -1);
+
+// тренд жир/мышцы за окно (по умолчанию 90 дней): наклоны регрессии + словесный вердикт.
+// Возвращает { series:[{date,label,fat,muscle}], fatSlope, muscleSlope, fatDir, musDir, verdict, tone } | null.
+export function recompTrend(bio, windowDays = 90) {
+  const all = (bio || []).filter((b) => b && b.date).sort((a, b) => a.date.localeCompare(b.date));
+  if (!all.length) return null;
+  const day = 864e5;
+  const latest = new Date(all[all.length - 1].date).getTime();
+  const cutoff = latest - windowDays * day;
+  const win = all.filter((b) => new Date(b.date).getTime() >= cutoff);
+  const series = win
+    .filter((b) => b.fat != null || b.muscle != null)
+    .map((b) => ({ date: b.date, label: monthShort(b.date), fat: b.fat ?? null, muscle: b.muscle ?? null }));
+  const pts = (k) => win.filter((b) => b[k] != null)
+    .map((b) => ({ x: (new Date(b.date).getTime() - cutoff) / day, y: b[k] }));
+  const fatPts = pts("fat"), musPts = pts("muscle");
+  if (fatPts.length < 2 || musPts.length < 2) return null;
+  const fatSlope = linregSlope(fatPts);     // %/день
+  const muscleSlope = linregSlope(musPts);  // кг/день
+  // пороги «≈стабильно»: жир ~0.3%/мес, мышцы ~0.15 кг/мес
+  const fatDir = dirOf(fatSlope, 0.01);
+  const musDir = dirOf(muscleSlope, 0.005);
+  let verdict, tone;
+  if (fatDir < 0 && musDir >= 0) { verdict = "Рекомпозиция идёт"; tone = "good"; }
+  else if (fatDir < 0 && musDir < 0) { verdict = "Теряешь и жир, и мышцы"; tone = "warn"; }
+  else if (fatDir > 0 && musDir > 0) { verdict = "Набор массы"; tone = "neutral"; }
+  else if (fatDir > 0 && musDir < 0) { verdict = "Регресс"; tone = "bad"; }
+  else if (fatDir > 0 && musDir === 0) { verdict = "Набор жира"; tone = "warn"; }
+  else if (fatDir === 0 && musDir > 0) { verdict = "Растут мышцы"; tone = "good"; }
+  else if (fatDir === 0 && musDir < 0) { verdict = "Уходят мышцы"; tone = "warn"; }
+  else { verdict = "Без изменений"; tone = "neutral"; }
+  return { series, fatSlope, muscleSlope, fatDir, musDir, verdict, tone };
 }
 
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
@@ -530,6 +695,39 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-gate-card{width:100%;max-width:360px;}
 .ft-gate-card .ft-logo{justify-content:center;margin-bottom:6px;}
 .ft-gate-err{color:${C.danger};font-size:12.5px;margin-top:8px;text-align:center;}
+
+/* празднование PR (фича #2) */
+.ft-toast.pr{background:${C.accent};color:${C.bg};border-color:${C.accent};font-weight:700;animation:ft-pop .25s ease, ft-pr-pulse 1.1s ease 1;}
+@keyframes ft-pr-pulse{0%{box-shadow:0 0 0 0 rgba(200,242,63,.55);}100%{box-shadow:0 0 0 16px rgba(200,242,63,0);}}
+
+/* предложение прогрессии (фича #3) */
+.ft-prog-sugg{display:flex;align-items:center;gap:8px;margin:-4px 0 9px;font-size:11.5px;flex-wrap:wrap;}
+.ft-prog-sugg-note{color:${C.blue};font-weight:700;}
+.ft-prog-sugg-b{background:${C.bg};border:1px solid ${C.blue};color:${C.blue};border-radius:7px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:.12s;}
+.ft-prog-sugg-b:hover{background:rgba(111,211,255,.14);}
+.ft-prog-sugg-done{display:inline-flex;align-items:center;gap:4px;color:${C.muted};font-weight:600;}
+
+/* дашборд рекомпозиции — вердикт (фича #4) */
+.ft-verdict{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:8px;white-space:nowrap;}
+.ft-verdict-good{color:${C.bg};background:${C.accent};}
+.ft-verdict-bad{color:#fff;background:${C.danger};}
+.ft-verdict-warn{color:${C.bg};background:${C.pink};}
+.ft-verdict-neutral{color:${C.muted};background:rgba(141,146,128,.18);}
+
+/* таймер отдыха — крупный, во всю ширину + сигнал по нулю (фича #5) */
+.ft-rest-timer.open{left:16px;right:16px;justify-content:center;gap:10px;padding:12px 14px;}
+.ft-rest-timer.open .ft-rest-time{font-size:30px;min-width:92px;}
+.ft-rest-timer.open .ft-rest-preset{padding:8px 11px;font-size:13px;}
+.ft-rest-timer.done{background:${C.accent};border-color:${C.accent};animation:ft-rest-flash .5s ease-in-out 4;}
+.ft-rest-timer.done .ft-rest-time,.ft-rest-timer.done .ft-rest-ctl{color:${C.bg};}
+@keyframes ft-rest-flash{0%,100%{box-shadow:0 0 0 0 rgba(200,242,63,0);}50%{box-shadow:0 0 0 5px rgba(200,242,63,.6);}}
+
+/* панель настроек */
+.ft-set-group{display:flex;flex-direction:column;}
+.ft-set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid ${C.line};font-size:13px;}
+.ft-set-row:last-child{border-bottom:none;}
+.ft-set-row .ft-input{max-width:96px;text-align:right;}
+.ft-set-row input[type=checkbox]{width:18px;height:18px;accent-color:${C.accent};}
 
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}

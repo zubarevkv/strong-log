@@ -13,6 +13,8 @@ declare(strict_types=1);
  *   GET    /templates         -> [Template]
  *   POST   /templates         <- Template   (upsert по id)
  *   DELETE /templates/{id}
+ *   GET    /settings          -> Settings (объект; {} если нет)
+ *   POST   /settings          <- Settings (upsert единственной строки)
  * Авторизация: заголовок Authorization: Bearer <TOKEN>.
  */
 
@@ -50,7 +52,7 @@ Auth::require($cfg);
 $resource = $parts[0] ?? '';
 $id       = $parts[1] ?? null;
 
-if ($resource !== 'sessions' && $resource !== 'bio' && $resource !== 'templates') {
+if ($resource !== 'sessions' && $resource !== 'bio' && $resource !== 'templates' && $resource !== 'settings') {
     Response::error('Not found', 404);
 }
 
@@ -61,6 +63,8 @@ if ($resource === 'sessions') {
     handleSessions($pdo, $method, $id);
 } elseif ($resource === 'templates') {
     handleTemplates($pdo, $method, $id);
+} elseif ($resource === 'settings') {
+    handleSettings($pdo, $method);
 } else {
     handleBio($pdo, $method, $id);
 }
@@ -170,6 +174,31 @@ function handleTemplates(PDO $pdo, string $method, ?string $id): void
         $stmt = $pdo->prepare('DELETE FROM templates WHERE id = :id');
         $stmt->execute([':id' => $id]);
         Response::noContent();
+    }
+
+    Response::error('Method not allowed', 405);
+}
+
+/* ============================================================
+ * SETTINGS (одна строка id='default'; JSON-объект настроек)
+ * ========================================================== */
+function handleSettings(PDO $pdo, string $method): void
+{
+    if ($method === 'GET') {
+        $stmt = $pdo->prepare("SELECT data FROM settings WHERE id = 'default'");
+        $stmt->execute();
+        $r = $stmt->fetch();
+        Response::json($r ? (json_decode($r['data'], true) ?: (object) []) : (object) []);
+    }
+
+    if ($method === 'POST') {
+        $b = readJson(); // произвольный объект настроек; клиент мержит с дефолтами
+        $stmt = $pdo->prepare(
+            "INSERT INTO settings (id, data) VALUES ('default', :data)
+             ON DUPLICATE KEY UPDATE data = VALUES(data)"
+        );
+        $stmt->execute([':data' => json_encode($b, JSON_UNESCAPED_UNICODE)]);
+        Response::json($b);
     }
 
     Response::error('Method not allowed', 405);
