@@ -63,6 +63,8 @@ const remote = {
   getTemplates: () => req("GET", "/templates"),
   saveTemplate: (t) => req("POST", "/templates", t),
   deleteTemplate: (id) => req("DELETE", `/templates/${encodeURIComponent(id)}`),
+  getSettings: () => req("GET", "/settings"),
+  saveSettings: (s) => req("POST", "/settings", s),
 };
 
 /* ============================================================
@@ -72,6 +74,7 @@ const LS = {
   sessions: "strong-log:sessions",
   bio: "strong-log:bio",
   templates: "strong-log:templates",
+  settings: "strong-log:settings",
 };
 const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } };
 const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -108,6 +111,8 @@ const local = {
     lsSet(LS.templates, lsGet(LS.templates).filter((x) => x.id !== id));
     return null;
   },
+  async getSettings() { try { return JSON.parse(localStorage.getItem(LS.settings)) || {}; } catch { return {}; } },
+  async saveSettings(s) { localStorage.setItem(LS.settings, JSON.stringify(s)); return s; },
 };
 
 export const api = IS_LOCAL ? local : remote;
