@@ -390,8 +390,6 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 
 .ft-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.ft-grid .span2{grid-column:1 / -1;}
-.ft-stat .ft-stat-v{font-size:26px;font-weight:700;line-height:1.1;margin-top:4px;}
 .ft-mini.ft-set{}
 .ft-bio-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
 .ft-bio-cell{background:${C.bg};border:1px solid ${C.line};border-radius:9px;padding:8px 9px;}

@@ -1,7 +1,9 @@
-/* Генерация PNG-иконок из нового знака STRONG·LOG (буква O — зелёный болт).
- * Запуск: npm run gen-icons (нужен devDependency sharp).
+/* Генерация PNG-иконок и favicon.ico из нового знака STRONG·LOG (буква O — зелёный болт).
+ * Запуск: npm run gen-icons (нужны devDependency sharp и png-to-ico).
  * Источник правды по форме знака — favicon.svg / LogoMark в src/App.jsx. */
 import sharp from "sharp";
+import pngToIco from "png-to-ico";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,9 +39,18 @@ const jobs = [
   ["maskable-512.png", 512, { rx: 0, f: 0.52 }],      // safe-zone под маску
 ];
 
+// буферы 16/32/48 переиспользуем для сборки favicon.ico
+const icoBufs = {};
 for (const [out, size, opts] of jobs) {
   const svg = tile(size, opts);
-  await sharp(Buffer.from(svg)).png().toFile(path.join(PUB, out));
+  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  await writeFile(path.join(PUB, out), png);
+  if ([16, 32, 48].includes(size)) icoBufs[size] = png;
   console.log("wrote", out, `${size}×${size}`);
 }
+
+// favicon.ico — мультиразмерный контейнер из 16/32/48
+const ico = await pngToIco([icoBufs[16], icoBufs[32], icoBufs[48]]);
+await writeFile(path.join(PUB, "favicon.ico"), ico);
+console.log("wrote favicon.ico", "16/32/48");
 console.log("done");
