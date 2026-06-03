@@ -14,7 +14,7 @@ import {
 import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   normSession, uid, today, fmtDate, num,
-  BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
+  BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume, setLoad,
   suggestForm, exerciseMeta, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
 } from "./data.js";
@@ -1143,8 +1143,15 @@ function Progress({ sessions, bio }) {
       .map((s) => {
         const e = s.exercises.find((x) => x.n === ex);
         const bw = bodyweightOn(bio, s.date);
+        // подходы для тултипа: эфф. нагрузка × повторы (строки сходятся с объёмом)
+        const setRows = e.sets
+          .map((st) => {
+            const load = setLoad(st, e.n, bw);
+            return { w: load == null ? null : Math.round(load), reps: num(st.reps) };
+          })
+          .filter((r) => r.w != null || r.reps != null);
         return {
-          date: s.date, label: fmtDate(s.date),
+          date: s.date, label: fmtDate(s.date), setRows,
           volume: Math.round(exerciseVolume(e, bw)), top: exerciseTop(e, bw),
         };
       })
@@ -1186,7 +1193,8 @@ function Progress({ sessions, bio }) {
               </div>
             </div>
             <Chart data={exData} dataKey={metric} color={C.accent}
-              unit={metric === "top" ? "кг" : ""} type="line" />
+              unit={metric === "top" ? "кг" : ""} type="line"
+              tooltipContent={metric === "volume" ? SetBreakdownTip : undefined} />
           </>
         )}
       </div>
@@ -1272,7 +1280,28 @@ function Progress({ sessions, bio }) {
   );
 }
 
-function Chart({ data, dataKey, color, unit, type }) {
+// тултип графика «Прогресс по упражнению» в режиме «Объём»:
+// дата, разбивка по подходам «вес × повторы» и итоговый объём
+function SetBreakdownTip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload;
+  const rows = p.setRows || [];
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 12 }}>
+      <div style={{ color: C.muted, marginBottom: 4 }}>{p.label}</div>
+      {rows.map((r, i) => (
+        <div key={i} className="ft-mono" style={{ color: C.txt }}>
+          {r.w != null ? r.w : "св.вес"} × {r.reps != null ? r.reps : "—"}
+        </div>
+      ))}
+      <div className="ft-mono" style={{ color: C.accent, fontWeight: 700, marginTop: 4 }}>
+        {p.volume} кг
+      </div>
+    </div>
+  );
+}
+
+function Chart({ data, dataKey, color, unit, type, tooltipContent }) {
   if (!data.length) return <div className="ft-muted ft-mini">Нет данных.</div>;
   const tip = {
     contentStyle: { background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 },
@@ -1287,7 +1316,7 @@ function Chart({ data, dataKey, color, unit, type }) {
           <CartesianGrid stroke={C.line} vertical={false} />
           <XAxis dataKey="label" {...axis} />
           <YAxis {...axis} />
-          <Tooltip {...tip} cursor={{ fill: "rgba(200,242,63,0.06)" }} />
+          <Tooltip {...tip} content={tooltipContent} cursor={{ fill: "rgba(200,242,63,0.06)" }} />
           <Bar dataKey={dataKey} fill={color} radius={[4, 4, 0, 0]} />
         </BarChart>
       ) : (
@@ -1295,7 +1324,7 @@ function Chart({ data, dataKey, color, unit, type }) {
           <CartesianGrid stroke={C.line} vertical={false} />
           <XAxis dataKey="label" {...axis} />
           <YAxis {...axis} domain={["auto", "auto"]} />
-          <Tooltip {...tip} />
+          <Tooltip {...tip} content={tooltipContent} />
           <Line dataKey={dataKey} stroke={color} strokeWidth={2.5}
             dot={{ r: 3, fill: color }} activeDot={{ r: 5 }} />
         </LineChart>
