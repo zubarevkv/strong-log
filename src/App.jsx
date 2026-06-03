@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ScatterChart, Scatter,
+  Tooltip, ResponsiveContainer, AreaChart, Area,
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend,
 } from "recharts";
 import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
-  Plus, Trash2, Check, X, ChevronDown, ChevronUp, Flame, ArrowUp, ArrowDown,
+  Plus, Trash2, Check, X, ChevronDown, ChevronUp, ArrowUp, ArrowDown,
   LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus, Trophy,
   Timer, Play, Pause, RotateCcw,
 } from "lucide-react";
@@ -14,9 +15,25 @@ import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume,
-  suggestForm, exerciseMeta, prSessionMap, pearson, weightVolumePairs,
+  suggestForm, exerciseMeta, prSessionMap,
+  heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
+
+/* ---------------------------- LOGO ---------------------------- */
+// вордмарк STR<O>NG·LOG: буква «O» — зелёный знак-болт (инлайн-SVG, масштаб от font-size)
+function LogoMark() {
+  return (
+    <span className="ft-logo-mark">
+      STR
+      <svg className="ft-logo-o" viewBox="0 0 100 100" aria-hidden="true">
+        <rect x="6" y="10" width="88" height="80" rx="40" fill={C.accent} />
+        <path d="M58 20 L34 56 L48 56 L42 82 L68 44 L52 44 Z" fill={C.bg} />
+      </svg>
+      NG<span style={{ color: C.accent }}>·</span>LOG
+    </span>
+  );
+}
 
 /* ================================================================== */
 export default function App() {
@@ -122,16 +139,15 @@ export default function App() {
 
       <header className="ft-head">
         <div className="ft-head-top">
-          <div>
-            <div className="ft-logo">
-              <Flame size={20} color={C.accent} strokeWidth={2.5} />
-              <span>STRØNG<span style={{ color: C.accent }}>·</span>LOG</span>
-            </div>
-            <div className="ft-head-sub">личный трекер силовых и состава тела</div>
+          <div className="ft-logo"><LogoMark /></div>
+          <div className="ft-head-actions">
+            <span className={"ft-syncchip" + (syncErr ? " err" : "")}>
+              <span className="ft-syncchip-dot" />{syncErr ? "ошибка" : "синк"}
+            </span>
+            <button className="ft-logout" onClick={logout} title="Выйти">
+              <LogOut size={14} /> выход
+            </button>
           </div>
-          <button className="ft-logout" onClick={logout} title="Выйти">
-            <LogOut size={14} /> выход
-          </button>
         </div>
         {syncErr && (
           <div className="ft-sync err"><CloudOff size={13} /> {syncErr}</div>
@@ -178,10 +194,7 @@ function Gate({ onAuth, error }) {
     <div style={{ background: C.bg, color: C.txt }} className="ft-root ft-gate">
       <style>{CSS}</style>
       <form className="ft-card ft-gate-card" onSubmit={submit}>
-        <div className="ft-logo">
-          <Flame size={20} color={C.accent} strokeWidth={2.5} />
-          <span>STRØNG<span style={{ color: C.accent }}>·</span>LOG</span>
-        </div>
+        <div className="ft-logo"><LogoMark /></div>
         <div className="ft-head-sub" style={{ textAlign: "center", marginBottom: 16 }}>
           {auth.isLocal ? "локальный режим — введи любой токен" : "введи токен доступа"}
         </div>
@@ -201,64 +214,116 @@ function Gate({ onAuth, error }) {
 
 /* ---------------------------- OVERVIEW ---------------------------- */
 function Home({ sessions, bio, go, templates }) {
-  const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
+  const sorted = useMemo(() => [...sessions].sort((a, b) => b.date.localeCompare(a.date)), [sessions]);
   const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const last = sorted[0];
-  const weekCount = sessions.filter(
-    (s) => (Date.now() - new Date(s.date)) / 864e5 <= 7
-  ).length;
-  const bioSorted = [...bio].sort((a, b) => b.date.localeCompare(a.date));
-  const lb = bioSorted[0], pb = bioSorted[1];
-  const delta = (k) => (lb && pb && lb[k] != null && pb[k] != null) ? lb[k] - pb[k] : null;
+  const lb = useMemo(() => [...bio].sort((a, b) => b.date.localeCompare(a.date))[0], [bio]);
+
+  const hero = useMemo(() => heroLift(sessions, bio), [sessions, bio]);
+  const tonnage = useMemo(() => weeklyTonnage(sessions, bio), [sessions, bio]);
+  const fatInfo = useMemo(() => fatTrend(bio), [bio]);
 
   return (
-    <div className="ft-grid">
-      <Stat label="Тренировок за 7 дней" value={weekCount} accent />
-      <Stat label="Всего тренировок" value={sessions.length} />
-      <Stat label="Текущий вес" value={lb?.weight != null ? lb.weight + " кг" : "—"}
-        trend={delta("weight")} invert />
-      <Stat label="Жир" value={lb?.fat != null ? lb.fat + " %" : "—"}
-        trend={delta("fat")} invert />
-
-      <div className="ft-card span2">
-        <div className="ft-card-h">Последняя тренировка</div>
-        {last ? (
-          <>
-            <div className="ft-row" style={{ marginBottom: 10 }}>
-              <span className="ft-row" style={{ justifyContent: "flex-start", gap: 6 }}>
-                <strong>{templates.find((t) => t.id === last.templateId)?.name || "Тренировка"}</strong>
-                {prMap.get(last.id) && (
-                  <span className="ft-pr" title={"Личный рекорд: " + prMap.get(last.id).join(", ")}>
-                    <Trophy size={13} />
-                  </span>
-                )}
+    <div>
+      {/* HERO — ключевой жим, макс. рабочий вес */}
+      {hero ? (
+        <div className="ft-card ft-hero">
+          <div className="ft-hero-top">
+            <span className="ft-hero-label">{shortLift(hero.name)} · макс</span>
+            {hero.delta != null && hero.delta !== 0 && (
+              <span className={"ft-badge" + (hero.delta < 0 ? " down" : "")}>
+                {hero.delta < 0 ? <ArrowDown size={13} /> : <ArrowUp size={13} />}
+                {Math.abs(hero.delta).toFixed(1)} / 8 нед
               </span>
-              <span className="ft-muted ft-mono">{fmtDate(last.date)}</span>
-            </div>
-            {(() => {
-              const bw = bodyweightOn(bio, last.date);
-              return last.exercises.slice(0, 7).map((e, i) => {
-                const top = exerciseTop(e, bw);
-                const vol = exerciseVolume(e, bw);
-                return (
-                  <div key={i} className="ft-row ft-mini">
-                    <span className="ft-trunc">{e.n}</span>
-                    <span className="ft-mono ft-muted">
-                      {top ? top + " кг" : "св.вес"}{vol ? " · " + Math.round(vol) + " об." : ""}
-                    </span>
-                  </div>
-                );
-              });
-            })()}
-          </>
-        ) : (
+            )}
+          </div>
+          <div className="ft-hero-v">{hero.value}<span className="ft-hero-unit">кг</span></div>
+          {hero.series.length >= 2 && (
+            <ResponsiveContainer width="100%" height={150}>
+              <AreaChart data={hero.series} margin={{ top: 6, right: 4, left: 4, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="ft-hero-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="label" stroke={C.muted} fontSize={11} tickLine={false}
+                  axisLine={false} interval="preserveStartEnd" />
+                <Tooltip
+                  contentStyle={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 }}
+                  labelStyle={{ color: C.muted }}
+                  formatter={(v) => [`${v} кг`, ""]} />
+                <Area dataKey="v" stroke={C.accent} strokeWidth={2.5} fill="url(#ft-hero-fill)"
+                  dot={{ r: 2.5, fill: C.accent }} activeDot={{ r: 5 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      ) : (
+        <div className="ft-card">
+          <div className="ft-card-h">Обзор силовых</div>
           <button className="ft-btn" onClick={() => go("log")}>
             <Plus size={16} /> Записать первую тренировку
           </button>
-        )}
+        </div>
+      )}
+
+      {/* две карточки: тоннаж/нед и жир */}
+      <div className="ft-grid">
+        <div className="ft-card ft-stat2">
+          <div className="ft-muted ft-mini">Тоннаж / нед</div>
+          <div className="ft-mono ft-stat2-v">
+            {tonnage ? num1000(tonnage.cur) : "—"}<span className="ft-unit">кг</span>
+          </div>
+          {tonnage && tonnage.pct != null && (
+            <div className={"ft-stat2-sub" + (tonnage.pct < 0 ? " down" : "")}>
+              {tonnage.pct < 0 ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+              {Math.abs(tonnage.pct)}% к прошлой
+            </div>
+          )}
+        </div>
+        <div className="ft-card ft-stat2">
+          <div className="ft-muted ft-mini">Жир (биоимпеданс)</div>
+          <div className="ft-mono ft-stat2-v">
+            {fatInfo ? fatInfo.value : "—"}<span className="ft-unit">%</span>
+          </div>
+          {fatInfo && fatInfo.delta != null && fatInfo.delta !== 0 && (
+            <div className={"ft-stat2-sub" + (fatInfo.delta < 0 ? " down" : "")}>
+              {fatInfo.delta < 0 ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+              {Math.abs(fatInfo.delta).toFixed(1)} за месяц
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="ft-card span2">
+      {/* ПОСЛЕДНИЕ */}
+      {last && (
+        <div className="ft-card">
+          <div className="ft-section-h ft-row">
+            <span>Последние</span>
+            {prMap.get(last.id) && (
+              <span className="ft-pr" title={"Личный рекорд: " + prMap.get(last.id).join(", ")}>
+                <Trophy size={13} />
+              </span>
+            )}
+          </div>
+          {(() => {
+            const bw = bodyweightOn(bio, last.date);
+            return last.exercises.slice(0, 4).map((e, i) => {
+              const top = exerciseTop(e, bw);
+              return (
+                <div key={i} className="ft-recent-row">
+                  <span className="ft-trunc">{e.n} <span className="ft-muted">· {setScheme(e)}</span></span>
+                  <span className="ft-mono">{top ? top + " кг" : "св.вес"}</span>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+
+      {/* Состав тела */}
+      <div className="ft-card">
         <div className="ft-card-h">Состав тела</div>
         {lb ? (
           <div className="ft-bio-grid">
@@ -281,29 +346,6 @@ function Home({ sessions, bio, go, templates }) {
   );
 }
 
-function Stat({ label, value, accent, trend, invert }) {
-  let arrow = null;
-  if (trend != null && trend !== 0) {
-    const down = trend < 0;
-    const good = invert ? down : !down;
-    arrow = (
-      <span className="ft-mono ft-mini" style={{ color: good ? C.accent : C.danger }}>
-        {down ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
-        {Math.abs(trend).toFixed(1)}
-      </span>
-    );
-  }
-  return (
-    <div className="ft-card ft-stat">
-      <div className="ft-muted ft-mini">{label}</div>
-      <div className="ft-row">
-        <div className="ft-mono ft-stat-v" style={{ color: accent ? C.accent : C.txt }}>{value}</div>
-        {arrow}
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------------- LOG ---------------------------- */
 function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTemplate, removeTemplate }) {
   const [tplId, setTplId] = useState(templates[0].id);
@@ -316,9 +358,9 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const [editingId, setEditingId] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
-  const [bumpedEi, setBumpedEi] = useState(null);
-  const bumpTimer = useRef(null);
-  useEffect(() => () => clearTimeout(bumpTimer.current), []);
+  // упражнения, к которым уже применили «+вес» в текущей форме — чип скрывается,
+  // чтобы нельзя было случайно прибавить вес несколько раз
+  const [appliedNames, setAppliedNames] = useState(() => new Set());
 
   const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const lastDates = useMemo(() => {
@@ -353,6 +395,8 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   }, [exNamesKey, sessions]);
 
   function bumpWeights(ei, step) {
+    const name = form[ei]?.n;
+    if (name && appliedNames.has(name)) return; // уже применяли — игнорируем
     setForm((f) => {
       const c = structuredClone(f);
       c[ei].sets = c[ei].sets.map((s) => ({
@@ -361,10 +405,8 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       }));
       return c;
     });
-    // кратковременная индикация «применено», чтобы не нажать дважды случайно
-    setBumpedEi(ei);
-    clearTimeout(bumpTimer.current);
-    bumpTimer.current = setTimeout(() => setBumpedEi(null), 1000);
+    // чип «применено» остаётся, но кликнуть повторно нельзя — он пропадает
+    if (name) setAppliedNames((prev) => new Set(prev).add(name));
   }
 
   function pick(id) {
@@ -372,6 +414,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
     setEditingId(null);
+    setAppliedNames(new Set());
   }
   function startEdit(s) {
     setEditingId(s.id);
@@ -383,6 +426,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     })));
     setOpenHist(false);
     setConfirmId(null);
+    setAppliedNames(new Set());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function cancelEdit() {
@@ -390,6 +434,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
+    setAppliedNames(new Set());
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -435,6 +480,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       await addSession(session);
       setForm(suggestForm(tpl, sessions));
       setEditingId(null);
+      setAppliedNames(new Set());
       setOpenHist(true);
       flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
     } catch (e) {
@@ -491,78 +537,6 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
         />
       )}
 
-      <div className="ft-row ft-datebar">
-        <label className="ft-mini ft-muted">Дата</label>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="ft-input ft-mono" />
-      </div>
-
-      {form.map((e, ei) => (
-        <div key={ei} className="ft-card ft-ex">
-          <div className="ft-ex-h">
-            <span className="ft-ex-num ft-mono">{ei + 1}</span>
-            <span className="ft-ex-name">{e.n}</span>
-            <button className="ft-icon-b ft-ex-del" onClick={() => delExercise(ei)}
-              title="Убрать упражнение (не делал)">
-              <Trash2 size={15} />
-            </button>
-          </div>
-          {exMeta[e.n]?.lastText && (
-            <button className={"ft-progress-chip" + (bumpedEi === ei ? " done" : "")}
-              onClick={() => bumpWeights(ei, exMeta[e.n].step)}
-              title={`Прибавить ${exMeta[e.n].step} кг ко всем подходам`}>
-              {bumpedEi === ei ? (
-                <><Check size={12} /> применено</>
-              ) : (
-                <><ArrowUp size={12} /> +{exMeta[e.n].step} кг
-                <span className="ft-muted">· в прошлый раз {exMeta[e.n].lastText}</span></>
-              )}
-            </button>
-          )}
-          {BW_EXERCISES.has(e.n) && (
-            <div className="ft-mini ft-muted ft-bw-hint">
-              Вес тела учитывается автоматически. Помощь — со знаком «+», утяжелитель — со знаком «−».
-            </div>
-          )}
-          <div className="ft-sets">
-            <div className="ft-set ft-set-head ft-mini ft-muted">
-              <span>#</span><span>{BW_EXERCISES.has(e.n) ? "помощь+/утяж−" : "кг"}</span><span>повт.</span><span></span>
-            </div>
-            {e.sets.map((s, si) => (
-              <div key={si} className="ft-set">
-                <span className="ft-mono ft-muted">{si + 1}</span>
-                <input className="ft-input ft-mono" type="number" inputMode="decimal"
-                  value={s.weight} placeholder="—"
-                  onChange={(ev) => setCell(ei, si, "weight", ev.target.value)} />
-                <input className="ft-input ft-mono" type="number" inputMode="numeric"
-                  value={s.reps ?? ""} placeholder={s.hint || "—"}
-                  onChange={(ev) => setCell(ei, si, "reps", ev.target.value)} />
-                <button className="ft-icon-b" onClick={() => delSet(ei, si)} title="Удалить подход">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button className="ft-add" onClick={() => addSet(ei)}>
-            <Plus size={13} /> подход
-          </button>
-        </div>
-      ))}
-
-      {editingId && (
-        <div className="ft-edit-bar ft-mini">
-          <span><Pencil size={13} /> Редактирование тренировки от {fmtDate(date)}</span>
-          <button className="ft-icon-b" onClick={cancelEdit} title="Отменить редактирование">
-            <X size={15} />
-          </button>
-        </div>
-      )}
-      <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
-        <Check size={17} /> {saving ? "Сохранение…" : editingId ? "Сохранить изменения" : "Сохранить тренировку"}
-      </button>
-      {toast && (
-        <div className="ft-toast"><Check size={15} /> {toast}</div>
-      )}
-
       <button className="ft-hist-toggle" onClick={() => setOpenHist((v) => !v)}>
         История ({sessions.length}) {openHist ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
       </button>
@@ -617,6 +591,80 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
             );
           })}
         </div>
+      )}
+
+      <div className="ft-row ft-datebar">
+        <label className="ft-mini ft-muted">Дата</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="ft-input ft-mono" />
+      </div>
+
+      {form.map((e, ei) => (
+        <div key={ei} className="ft-card ft-ex">
+          <div className="ft-ex-h">
+            <span className="ft-ex-num ft-mono">{ei + 1}</span>
+            <span className="ft-ex-name">{e.n}</span>
+            <button className="ft-icon-b ft-ex-del" onClick={() => delExercise(ei)}
+              title="Убрать упражнение (не делал)">
+              <Trash2 size={15} />
+            </button>
+          </div>
+          {exMeta[e.n]?.lastText && (
+            appliedNames.has(e.n) ? (
+              <div className="ft-progress-chip done" aria-disabled="true">
+                <Check size={12} /> применено
+              </div>
+            ) : (
+              <button className="ft-progress-chip"
+                onClick={() => bumpWeights(ei, exMeta[e.n].step)}
+                title={`Прибавить ${exMeta[e.n].step} кг ко всем подходам`}>
+                <ArrowUp size={12} /> +{exMeta[e.n].step} кг
+                <span className="ft-muted">· в прошлый раз {exMeta[e.n].lastText}</span>
+              </button>
+            )
+          )}
+          {BW_EXERCISES.has(e.n) && (
+            <div className="ft-mini ft-muted ft-bw-hint">
+              Вес тела учитывается автоматически. Помощь — со знаком «+», утяжелитель — со знаком «−».
+            </div>
+          )}
+          <div className="ft-sets">
+            <div className="ft-set ft-set-head ft-mini ft-muted">
+              <span>#</span><span>{BW_EXERCISES.has(e.n) ? "помощь+/утяж−" : "кг"}</span><span>повт.</span><span></span>
+            </div>
+            {e.sets.map((s, si) => (
+              <div key={si} className="ft-set">
+                <span className="ft-mono ft-muted">{si + 1}</span>
+                <input className="ft-input ft-mono" type="number" inputMode="decimal"
+                  value={s.weight} placeholder="—"
+                  onChange={(ev) => setCell(ei, si, "weight", ev.target.value)} />
+                <input className="ft-input ft-mono" type="number" inputMode="numeric"
+                  value={s.reps ?? ""} placeholder={s.hint || "—"}
+                  onChange={(ev) => setCell(ei, si, "reps", ev.target.value)} />
+                <button className="ft-icon-b" onClick={() => delSet(ei, si)} title="Удалить подход">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button className="ft-add" onClick={() => addSet(ei)}>
+            <Plus size={13} /> подход
+          </button>
+        </div>
+      ))}
+
+      {editingId && (
+        <div className="ft-edit-bar ft-mini">
+          <span><Pencil size={13} /> Редактирование тренировки от {fmtDate(date)}</span>
+          <button className="ft-icon-b" onClick={cancelEdit} title="Отменить редактирование">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+      <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
+        <Check size={17} /> {saving ? "Сохранение…" : editingId ? "Сохранить изменения" : "Сохранить тренировку"}
+      </button>
+      {toast && (
+        <div className="ft-toast"><Check size={15} /> {toast}</div>
       )}
     </div>
   );
@@ -1047,14 +1095,6 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
 }
 
 /* ---------------------------- PROGRESS ---------------------------- */
-// словесная интерпретация коэффициента корреляции
-function corrText(r) {
-  const a = Math.abs(r);
-  const strength = a < 0.3 ? "слабая связь" : a < 0.6 ? "умеренная связь" : "сильная связь";
-  const dir = r > 0 ? "выше вес — выше объём" : "выше вес — ниже объём";
-  return `${strength}, ${dir}`;
-}
-
 function Progress({ sessions, bio }) {
   const exNames = useMemo(() => {
     const set = new Set();
@@ -1067,6 +1107,34 @@ function Progress({ sessions, bio }) {
   const [bioMetric, setBioMetric] = useState("weight");
 
   useEffect(() => { if (!ex && exNames.length) setEx(exNames[0]); }, [exNames, ex]);
+
+  // --- сегменты тела: сравнение двух замеров (радар) ---
+  const segBio = useMemo(
+    () => [...bio]
+      .filter((b) => b.segments && Object.keys(b.segments).length)
+      .sort((a, b) => b.date.localeCompare(a.date)),
+    [bio]
+  );
+  const [segField, setSegField] = useState("muscleKg");
+  const [segA, setSegA] = useState("");
+  const [segB, setSegB] = useState("");
+  useEffect(() => {
+    if (!segBio.length) return;
+    const dates = segBio.map((b) => b.date);
+    setSegA((cur) => (cur && dates.includes(cur)) ? cur : dates[0]);
+    setSegB((cur) => (cur && dates.includes(cur)) ? cur : (dates[1] || ""));
+  }, [segBio]);
+
+  const radarData = useMemo(() => {
+    const A = segBio.find((b) => b.date === segA);
+    const B = segBio.find((b) => b.date === segB);
+    return SEGMENTS.map((s) => ({
+      seg: s.label,
+      A: A?.segments?.[s.k]?.[segField] ?? null,
+      B: B?.segments?.[s.k]?.[segField] ?? null,
+    }));
+  }, [segBio, segA, segB, segField]);
+  const segFieldDef = SEG_FIELDS.find((f) => f.k === segField);
 
   const exData = useMemo(() => {
     if (!ex) return [];
@@ -1096,9 +1164,6 @@ function Progress({ sessions, bio }) {
     [bio, bioMetric]);
 
   const bm = BIO_METRICS.find((m) => m.k === bioMetric);
-
-  const wvPairs = useMemo(() => weightVolumePairs(sessions, bio), [sessions, bio]);
-  const wvR = useMemo(() => pearson(wvPairs.map((p) => [p.weight, p.volume])), [wvPairs]);
 
   return (
     <div>
@@ -1136,34 +1201,53 @@ function Progress({ sessions, bio }) {
       </div>
 
       <div className="ft-card">
-        <div className="ft-card-h">Вес тела ↔ объём тренировки</div>
-        {wvPairs.length < 3 ? (
+        <div className="ft-card-h">Сегменты тела — сравнение</div>
+        {segBio.length === 0 ? (
           <div className="ft-muted ft-mini">
-            Нужно ≥3 тренировки с замером веса тела рядом по дате. Добавь замеры на вкладке «Тело».
+            Добавь замер с посегментным анализом на вкладке «Тело».
           </div>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={220}>
-              <ScatterChart margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid stroke={C.line} />
-                <XAxis type="number" dataKey="weight" name="Вес" unit=" кг"
-                  domain={["auto", "auto"]} stroke={C.muted} fontSize={11} tickLine={false} />
-                <YAxis type="number" dataKey="volume" name="Объём"
-                  stroke={C.muted} fontSize={11} tickLine={false} />
-                <Tooltip cursor={{ strokeDasharray: "3 3", stroke: C.line }}
+            <div className="ft-pills" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+              {SEG_FIELDS.map((f) => (
+                <button key={f.k} className={"ft-pill" + (segField === f.k ? " on" : "")}
+                  onClick={() => setSegField(f.k)}>{f.label} {f.unit}</button>
+              ))}
+            </div>
+            <div className="ft-row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <div className="ft-select-wrap">
+                <select className="ft-select" value={segA} onChange={(e) => setSegA(e.target.value)}>
+                  {segBio.map((b) => <option key={b.date} value={b.date}>{fmtDate(b.date)}</option>)}
+                </select>
+                <ChevronDown size={14} className="ft-select-ic" />
+              </div>
+              <span className="ft-muted ft-mini">сравнить с</span>
+              <div className="ft-select-wrap">
+                <select className="ft-select" value={segB} onChange={(e) => setSegB(e.target.value)}>
+                  <option value="">— нет</option>
+                  {segBio.map((b) => <option key={b.date} value={b.date}>{fmtDate(b.date)}</option>)}
+                </select>
+                <ChevronDown size={14} className="ft-select-ic" />
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <RadarChart data={radarData} outerRadius="70%">
+                <PolarGrid stroke={C.line} />
+                <PolarAngleAxis dataKey="seg" tick={{ fill: C.muted, fontSize: 11 }} />
+                <PolarRadiusAxis tick={{ fill: C.muted, fontSize: 10 }} stroke={C.line} angle={90} />
+                <Radar name={segA ? fmtDate(segA) : "A"} dataKey="A"
+                  stroke={C.accent} fill={C.accent} fillOpacity={0.35} />
+                {segB && (
+                  <Radar name={fmtDate(segB)} dataKey="B"
+                    stroke={C.blue} fill={C.blue} fillOpacity={0.15} />
+                )}
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Tooltip
                   contentStyle={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 }}
                   labelStyle={{ color: C.muted }}
-                  formatter={(v, n) => [n === "Вес" ? `${v} кг` : `${v} об.`, n]} />
-                <Scatter data={wvPairs} fill={C.accent} />
-              </ScatterChart>
+                  formatter={(v) => [`${v}${segFieldDef?.unit ? " " + segFieldDef.unit : ""}`, ""]} />
+              </RadarChart>
             </ResponsiveContainer>
-            <div className="ft-mini" style={{ marginTop: 8 }}>
-              {wvR == null ? (
-                <span className="ft-muted">Недостаточно разброса данных для оценки связи.</span>
-              ) : (
-                <>Корреляция r = <strong className="ft-mono" style={{ color: C.accent }}>{wvR.toFixed(2)}</strong> — {corrText(wvR)}</>
-              )}
-            </div>
           </>
         )}
       </div>
