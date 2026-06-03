@@ -18,7 +18,7 @@ import {
   suggestForm, exerciseMeta, lastExerciseSets, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
   exerciseE1rmBest, detectSessionPRs, suggestProgression, recompTrend,
-  SETTINGS_DEFAULTS, withSettings,
+  exerciseNames, SETTINGS_DEFAULTS, withSettings,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -212,14 +212,15 @@ export default function App() {
       </nav>
 
       <main className="ft-main">
-        {tab === "home" && <Home sessions={sessions} bio={bio} go={setTab} templates={allTemplates} />}
+        {tab === "home" && <Home sessions={sessions} bio={bio} go={setTab} templates={allTemplates} settings={settings} />}
         {tab === "log" && <Log sessions={sessions} bio={bio} addSession={addSession} removeSession={removeSession} onErr={setSyncErr} templates={allTemplates} addTemplate={addTemplate} removeTemplate={removeTemplate} settings={settings} startRest={startRest} />}
         {tab === "body" && <Body bio={bio} upsertBio={upsertBio} removeBio={removeBio} onErr={setSyncErr} />}
         {tab === "progress" && <Progress sessions={sessions} bio={bio} />}
       </main>
 
       {settingsOpen && (
-        <SettingsPanel settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)} />
+        <SettingsPanel settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)}
+          exercises={exerciseNames(sessions)} />
       )}
 
       {/* таймер отдыха — на уровне App, чтобы запущенный отсчёт переживал смену вкладок */}
@@ -262,7 +263,7 @@ function Gate({ onAuth, error }) {
 }
 
 /* ---------------------------- SETTINGS PANEL ---------------------------- */
-function SettingsPanel({ settings, onSave, onClose }) {
+function SettingsPanel({ settings, onSave, onClose, exercises = [] }) {
   const [f, setF] = useState(() => withSettings(settings));
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   function save() { onSave(f); onClose(); }
@@ -311,6 +312,17 @@ function SettingsPanel({ settings, onSave, onClose }) {
               <ChevronDown size={14} className="ft-select-ic" />
             </div>
           </label>
+          <label className="ft-set-row">
+            <span>Упражнение на «Обзоре»</span>
+            <div className="ft-select-wrap">
+              <select className="ft-select" value={f.homeExercise == null ? "auto" : f.homeExercise}
+                onChange={(e) => set("homeExercise", e.target.value === "auto" ? null : e.target.value)}>
+                <option value="auto">Авто (самое частое)</option>
+                {exercises.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <ChevronDown size={14} className="ft-select-ic" />
+            </div>
+          </label>
         </div>
 
         <div className="ft-muted ft-mini" style={{ marginTop: 10 }}>
@@ -326,13 +338,13 @@ function SettingsPanel({ settings, onSave, onClose }) {
 }
 
 /* ---------------------------- OVERVIEW ---------------------------- */
-function Home({ sessions, bio, go, templates }) {
+function Home({ sessions, bio, go, templates, settings }) {
   const sorted = useMemo(() => [...sessions].sort((a, b) => b.date.localeCompare(a.date)), [sessions]);
   const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const last = sorted[0];
   const lb = useMemo(() => [...bio].sort((a, b) => b.date.localeCompare(a.date))[0], [bio]);
 
-  const hero = useMemo(() => heroLift(sessions, bio), [sessions, bio]);
+  const hero = useMemo(() => heroLift(sessions, bio, settings?.homeExercise), [sessions, bio, settings]);
   const tonnage = useMemo(() => weeklyTonnage(sessions, bio), [sessions, bio]);
   const fatInfo = useMemo(() => fatTrend(bio), [bio]);
   const recomp = useMemo(() => recompTrend(bio, 90), [bio]);
@@ -421,14 +433,14 @@ function Home({ sessions, bio, go, templates }) {
             <span className={"ft-verdict ft-verdict-" + recomp.tone}>{recomp.verdict}</span>
           </div>
           <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={recomp.series} margin={{ top: 6, right: 2, left: -10, bottom: 0 }}>
+            <LineChart data={recomp.series} margin={{ top: 6, right: 6, left: 6, bottom: 0 }}>
               <CartesianGrid stroke={C.line} vertical={false} />
               <XAxis dataKey="label" stroke={C.muted} fontSize={11} tickLine={false}
                 axisLine={false} interval="preserveStartEnd" />
               <YAxis yAxisId="fat" stroke={fatColor} fontSize={10} tickLine={false} axisLine={false}
-                width={28} domain={["auto", "auto"]} />
+                width={36} tickMargin={2} domain={["auto", "auto"]} />
               <YAxis yAxisId="mus" orientation="right" stroke={C.blue} fontSize={10} tickLine={false}
-                axisLine={false} width={28} domain={["auto", "auto"]} />
+                axisLine={false} width={36} tickMargin={2} domain={["auto", "auto"]} />
               <Tooltip
                 contentStyle={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 }}
                 labelStyle={{ color: C.muted }}
@@ -506,11 +518,15 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const [editingId, setEditingId] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
-  // упражнения, к которым уже применили «+вес» в текущей форме — чип скрывается,
-  // чтобы нельзя было случайно прибавить вес несколько раз
-  const [appliedNames, setAppliedNames] = useState(() => new Set());
-  // упражнения, к которым применили предложение прогрессии (фича #3)
-  const [appliedProg, setAppliedProg] = useState(() => new Set());
+  // упражнение -> снимок подходов ДО прибавки «+вес» (для отмены применения)
+  const [appliedBump, setAppliedBump] = useState(() => new Map());
+  // упражнение -> снимок подходов ДО прогрессии (фича #3, для отмены)
+  const [appliedProg, setAppliedProg] = useState(() => new Map());
+  // раскрытые упражнения (по имени); по умолчанию все свёрнуты — открываются по клику
+  const [openEx, setOpenEx] = useState(() => new Set());
+  function toggleEx(name) {
+    setOpenEx((prev) => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s; });
+  }
 
   const prMap = useMemo(() => prSessionMap(sessions, bio), [sessions, bio]);
   const lastDates = useMemo(() => {
@@ -538,6 +554,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       const tpl = templates[0];
       setTplId(tpl.id);
       setForm(suggestForm(tpl, sessions));
+      setOpenEx(new Set());
     }
   }, [templates]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -561,7 +578,8 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
 
   function bumpWeights(ei, step) {
     const name = form[ei]?.n;
-    if (name && appliedNames.has(name)) return; // уже применяли — игнорируем
+    if (name && appliedBump.has(name)) return; // уже применяли — игнорируем
+    const snap = structuredClone(form[ei].sets); // запоминаем для отмены
     setForm((f) => {
       const c = structuredClone(f);
       c[ei].sets = c[ei].sets.map((s) => ({
@@ -570,14 +588,20 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       }));
       return c;
     });
-    // чип «применено» остаётся, но кликнуть повторно нельзя — он пропадает
-    if (name) setAppliedNames((prev) => new Set(prev).add(name));
+    if (name) setAppliedBump((prev) => new Map(prev).set(name, snap));
+  }
+  // отменить прибавку «+вес» — вернуть подходы к снимку до применения
+  function undoBump(ei, name) {
+    const snap = appliedBump.get(name);
+    setForm((f) => { const c = structuredClone(f); if (snap) c[ei].sets = structuredClone(snap); return c; });
+    setAppliedBump((prev) => { const m = new Map(prev); m.delete(name); return m; });
   }
 
   // применить предложение прогрессии: проставить вес/целевые повторы во все подходы (фича #3)
   function applyProgression(ei, prog) {
     const name = form[ei]?.n;
     if (!prog || (name && appliedProg.has(name))) return;
+    const snap = structuredClone(form[ei].sets); // запоминаем для отмены
     setForm((f) => {
       const c = structuredClone(f);
       c[ei].sets = c[ei].sets.map((s) => ({
@@ -587,7 +611,13 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       }));
       return c;
     });
-    if (name) setAppliedProg((prev) => new Set(prev).add(name));
+    if (name) setAppliedProg((prev) => new Map(prev).set(name, snap));
+  }
+  // отменить прогрессию — вернуть подходы к снимку до применения
+  function undoProgression(ei, name) {
+    const snap = appliedProg.get(name);
+    setForm((f) => { const c = structuredClone(f); if (snap) c[ei].sets = structuredClone(snap); return c; });
+    setAppliedProg((prev) => { const m = new Map(prev); m.delete(name); return m; });
   }
 
   function pick(id) {
@@ -595,7 +625,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
     setEditingId(null);
-    setAppliedNames(new Set()); setAppliedProg(new Set());
+    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set());
   }
   function startEdit(s) {
     setEditingId(s.id);
@@ -607,7 +637,8 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     })));
     setOpenHist(false);
     setConfirmId(null);
-    setAppliedNames(new Set()); setAppliedProg(new Set());
+    setAppliedBump(new Map()); setAppliedProg(new Map());
+    setOpenEx(new Set(s.exercises.map((e) => e.n))); // при редактировании показываем подходы сразу
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function cancelEdit() {
@@ -615,7 +646,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
-    setAppliedNames(new Set()); setAppliedProg(new Set());
+    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set());
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -664,7 +695,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       const prs = detectSessionPRs(sessions, normSession(session), bio);
       setForm(suggestForm(tpl, sessions));
       setEditingId(null);
-      setAppliedNames(new Set()); setAppliedProg(new Set());
+      setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set());
       setOpenHist(true);
       if (prs.length) flash(prCelebration(prs), true);
       else flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
@@ -783,20 +814,41 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="ft-input ft-mono" />
       </div>
 
-      {form.map((e, ei) => (
-        <div key={ei} className="ft-card ft-ex">
+      {form.map((e, ei) => {
+        const open = openEx.has(e.n);
+        const preview = e.sets
+          .map((x) => (x.weight ? x.weight + "×" : "") + (x.reps ?? ""))
+          .filter(Boolean).join(" / ");
+        return (
+        <div key={ei} className={"ft-card ft-ex" + (open ? " open" : "")}>
           <div className="ft-ex-h">
             <span className="ft-ex-num ft-mono">{ei + 1}</span>
-            <span className="ft-ex-name">{e.n}</span>
+            <button className="ft-ex-toggle" onClick={() => toggleEx(e.n)} aria-expanded={open}
+              title={open ? "Свернуть подходы" : "Открыть подходы"}>
+              <span className="ft-ex-name">{e.n}</span>
+              {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
             <button className="ft-icon-b ft-ex-del" onClick={() => delExercise(ei)}
               title="Убрать упражнение (не делал)">
               <Trash2 size={15} />
             </button>
           </div>
+
+          {!open && (
+            <button className="ft-ex-preview ft-mono" onClick={() => toggleEx(e.n)}
+              title="Открыть подходы">
+              {preview || "нажми, чтобы заполнить подходы"}
+            </button>
+          )}
+
+          {open && <>
           {exMeta[e.n]?.lastText && (
-            appliedNames.has(e.n) ? (
-              <div className="ft-progress-chip done" aria-disabled="true">
+            appliedBump.has(e.n) ? (
+              <div className="ft-progress-chip done">
                 <Check size={12} /> применено
+                <button className="ft-chip-undo" onClick={() => undoBump(ei, e.n)} title="Отменить прибавку">
+                  <X size={11} /> отменить
+                </button>
               </div>
             ) : (
               <button className="ft-progress-chip"
@@ -811,7 +863,12 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
             <div className="ft-prog-sugg">
               <span className="ft-prog-sugg-note">{progMap[ei].note}</span>
               {appliedProg.has(e.n) ? (
-                <span className="ft-prog-sugg-done"><Check size={12} /> применено</span>
+                <span className="ft-prog-sugg-done">
+                  <Check size={12} /> применено
+                  <button className="ft-chip-undo" onClick={() => undoProgression(ei, e.n)} title="Отменить">
+                    <X size={11} /> отменить
+                  </button>
+                </span>
               ) : (
                 <button className="ft-prog-sugg-b" onClick={() => applyProgression(ei, progMap[ei])}>
                   применить
@@ -846,8 +903,10 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
           <button className="ft-add" onClick={() => addSet(ei)}>
             <Plus size={13} /> подход
           </button>
+          </>}
         </div>
-      ))}
+        );
+      })}
 
       {editingId && (
         <div className="ft-edit-bar ft-mini">

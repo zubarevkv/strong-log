@@ -105,6 +105,7 @@ export const SETTINGS_DEFAULTS = {
   autoStartRest: true,    // авто-старт таймера по завершении подхода
   restNotify: false,      // локальное уведомление по окончании отдыха, если вкладка в фоне
   progressionStep: null,  // null = авто (stepKg по упражнению)
+  homeExercise: null,     // упражнение для hero-графика на «Обзоре» (null = авто, самое частое)
   pushOptIn: false,       // фаза B
   pushHour: 18,           // фаза B
   pushThresholdDays: 3,   // фаза B
@@ -413,13 +414,23 @@ export function num1000(v) {
 
 // hero: ключевой жим (предпочтительно «Жим штанги лёжа»), макс. рабочий вес.
 // Возвращает { name, value, delta (за ~8 недель), series:[{date,label,v}] } или null.
-export function heroLift(sessions, bio) {
+// список упражнений из истории, по убыванию частоты (канонические имена) — для выбора в настройках
+export function exerciseNames(sessions) {
+  const freq = {};
+  (sessions || []).forEach((s) => s.exercises.forEach((e) => { freq[e.n] = (freq[e.n] || 0) + 1; }));
+  return Object.keys(freq).sort((a, b) => freq[b] - freq[a] || a.localeCompare(b));
+}
+
+// hero-график «Обзора». pick — явно выбранное упражнение (из настроек); если его нет в истории
+// или не задано — авто: «Жим штанги лёжа», иначе самое частое.
+export function heroLift(sessions, bio, pick) {
   if (!sessions || !sessions.length) return null;
   const freq = {};
   sessions.forEach((s) => s.exercises.forEach((e) => { freq[e.n] = (freq[e.n] || 0) + 1; }));
+  const chosen = pick ? canon(pick) : null;
   const preferred = canon("Жим лёжа"); // «Жим штанги лёжа»
-  const name = freq[preferred]
-    ? preferred
+  const name = (chosen && freq[chosen]) ? chosen
+    : freq[preferred] ? preferred
     : Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
   if (!name) return null;
   const series = sessions
@@ -594,6 +605,14 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-ex-h{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
 .ft-ex-num{display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:${C.bg};border:1px solid ${C.line};border-radius:6px;font-size:12px;color:${C.accent};flex:none;}
 .ft-ex-name{font-weight:600;font-size:14px;}
+.ft-ex-toggle{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:none;border:none;color:${C.txt};cursor:pointer;padding:2px 0;text-align:left;}
+.ft-ex-toggle .ft-ex-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ft-ex-toggle svg{color:${C.muted};flex:none;}
+.ft-ex-toggle:hover .ft-ex-name,.ft-ex-toggle:hover svg{color:${C.accent};}
+.ft-ex-preview{width:100%;display:block;text-align:left;background:none;border:none;border-top:1px dashed ${C.line};margin-top:2px;padding:8px 0 2px;color:${C.muted};font-size:12px;cursor:pointer;}
+.ft-ex-preview:hover{color:${C.accent};}
+.ft-chip-undo{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 6px;background:none;border:1px solid ${C.line};color:${C.muted};border-radius:6px;font-size:10.5px;font-weight:600;cursor:pointer;transition:.12s;}
+.ft-chip-undo:hover{color:${C.danger};border-color:${C.danger};background:rgba(255,107,94,.1);}
 .ft-sets{display:flex;flex-direction:column;gap:6px;}
 .ft-set{display:grid;grid-template-columns:24px 1fr 1fr 30px;gap:8px;align-items:center;}
 .ft-set-head{padding:0 2px;}
