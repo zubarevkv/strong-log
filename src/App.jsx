@@ -336,6 +336,9 @@ function Home({ sessions, bio, go, templates }) {
   const tonnage = useMemo(() => weeklyTonnage(sessions, bio), [sessions, bio]);
   const fatInfo = useMemo(() => fatTrend(bio), [bio]);
   const recomp = useMemo(() => recompTrend(bio, 90), [bio]);
+  // цвет линии жира по семантике дашборда: вниз = хорошо (зелёное), вверх = плохо (красное)
+  const fatColor = !recomp ? C.pink
+    : recomp.fatDir < 0 ? C.accent : recomp.fatDir > 0 ? C.danger : C.muted;
 
   return (
     <div>
@@ -422,7 +425,7 @@ function Home({ sessions, bio, go, templates }) {
               <CartesianGrid stroke={C.line} vertical={false} />
               <XAxis dataKey="label" stroke={C.muted} fontSize={11} tickLine={false}
                 axisLine={false} interval="preserveStartEnd" />
-              <YAxis yAxisId="fat" stroke={C.pink} fontSize={10} tickLine={false} axisLine={false}
+              <YAxis yAxisId="fat" stroke={fatColor} fontSize={10} tickLine={false} axisLine={false}
                 width={28} domain={["auto", "auto"]} />
               <YAxis yAxisId="mus" orientation="right" stroke={C.blue} fontSize={10} tickLine={false}
                 axisLine={false} width={28} domain={["auto", "auto"]} />
@@ -431,8 +434,8 @@ function Home({ sessions, bio, go, templates }) {
                 labelStyle={{ color: C.muted }}
                 formatter={(v, n) => [n === "Жир" ? `${v} %` : `${v} кг`, n]} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line yAxisId="fat" name="Жир" dataKey="fat" stroke={C.pink} strokeWidth={2.5}
-                dot={{ r: 2.5, fill: C.pink }} connectNulls />
+              <Line yAxisId="fat" name="Жир" dataKey="fat" stroke={fatColor} strokeWidth={2.5}
+                dot={{ r: 2.5, fill: fatColor }} connectNulls />
               <Line yAxisId="mus" name="Мышцы" dataKey="muscle" stroke={C.blue} strokeWidth={2.5}
                 dot={{ r: 2.5, fill: C.blue }} connectNulls />
             </LineChart>

@@ -218,19 +218,23 @@ export const exerciseE1rm = (ex, bw) => exerciseE1rmBest(ex, bw).value;
  *   weight — макс. рабочий вес, e1rm — макс. оценка 1ПМ, volume — макс. объём упражнения за сессию.
  * Рекорд засчитываем только если ранее уже был best и текущее значение строго его
  * превышает (первое появление упражнения рекордом не считаем; равенство — не PR).
- * Весовые типы (weight/e1rm) не применяем к BW-упражнениям («свой вес»). */
+ * Весовые типы (weight/e1rm) не применяем к BW-упражнениям («свой вес»).
+ * marker — зажигает ли тип кубок 🏆 в истории. Объём бьётся почти каждую сессию (добавил
+ * подход/повтор → новый максимум), поэтому в исторический маркер не идёт — остаётся только
+ * в моменте празднования при сейве (detectSessionPRs). */
 export const PR_KINDS = [
-  { kind: "weight", label: "вес", unit: "кг", calc: exerciseTop, skipBW: true },
-  { kind: "e1rm", label: "e1RM", unit: "кг", calc: exerciseE1rm, skipBW: true },
-  { kind: "volume", label: "объём", unit: "кг", calc: exerciseVolume, skipBW: false },
+  { kind: "weight", label: "вес", unit: "кг", calc: exerciseTop, skipBW: true, marker: true },
+  { kind: "e1rm", label: "e1RM", unit: "кг", calc: exerciseE1rm, skipBW: true, marker: true },
+  { kind: "volume", label: "объём", unit: "кг", calc: exerciseVolume, skipBW: false, marker: false },
 ];
 
-// общий проход: для каждого упражнения сессии обновляем best[canon][kind] и собираем побитые рекорды
+// проход для исторического кубка: обновляем best[canon][kind] и собираем побитые рекорды-маркеры
 function scanSessionPRs(e, bw, best) {
   const cn = canon(e.n);
   const b = best[cn] || (best[cn] = {});
   const prs = [];
-  for (const { kind, calc, skipBW, label, unit } of PR_KINDS) {
+  for (const { kind, calc, skipBW, label, unit, marker } of PR_KINDS) {
+    if (!marker) continue; // объём в исторический маркер не идёт
     if (skipBW && BW_EXERCISES.has(cn)) continue;
     const val = calc(e, bw);
     if (!val || val <= 0) continue;
