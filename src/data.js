@@ -103,6 +103,7 @@ export const num = (v) => (v === "" || v == null ? null : Number(v));
 export const SETTINGS_DEFAULTS = {
   restSeconds: 90,        // длительность таймера отдыха по умолчанию
   autoStartRest: true,    // авто-старт таймера по завершении подхода
+  restNotify: false,      // локальное уведомление по окончании отдыха, если вкладка в фоне
   progressionStep: null,  // null = авто (stepKg по упражнению)
   pushOptIn: false,       // фаза B
   pushHour: 18,           // фаза B
@@ -255,11 +256,13 @@ export function prSessionMap(sessions, bio) {
   return out;
 }
 
-// PR именно этой сессии: best строим из истории БЕЗ неё самой (по id) — ресейв не зажигает заново.
+// PR именно этой сессии. `history` — состояние ДО сохранения: при первом сейве сессии в нём ещё
+// нет, при редактировании в нём лежит её прошлая версия (тот же id). Сравниваем со ВСЕЙ этой
+// историей как есть: для новой сессии это все прошлые рекорды, для ресейва — в т.ч. её собственная
+// прошлая запись, поэтому неизменный/уменьшённый ресейв не бьёт рекорд и не зажигает празднование.
 export function detectSessionPRs(history, session, bio) {
   const best = {};
-  const past = (history || []).filter((s) => s.id !== session.id);
-  for (const s of past) {
+  for (const s of history || []) {
     const bw = bodyweightOn(bio, s.date);
     for (const e of s.exercises) {
       const cn = canon(e.n);
@@ -593,6 +596,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-set-head span:nth-child(2),.ft-set-head span:nth-child(3){padding-left:9px;}
 .ft-icon-b{background:none;border:none;color:${C.muted};cursor:pointer;display:flex;align-items:center;justify-content:center;padding:4px;border-radius:6px;transition:.12s;}
 .ft-icon-b:hover{color:${C.danger};background:rgba(255,107,94,.1);}
+.ft-gear:hover{color:${C.accent};background:rgba(200,242,63,.1);}
 .ft-add{margin-top:8px;background:none;border:1px dashed ${C.line};color:${C.muted};border-radius:8px;padding:6px;font-size:12px;width:100%;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:.12s;}
 .ft-add:hover{color:${C.accent};border-color:${C.accent};}
 
@@ -623,7 +627,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 
 /* таймер отдыха (фичи #1) */
 .ft-rest-timer{position:fixed;right:16px;bottom:16px;z-index:30;display:flex;align-items:center;gap:6px;}
-.ft-rest-timer.open{background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:7px 9px;box-shadow:0 8px 24px rgba(0,0,0,.45);flex-wrap:wrap;max-width:calc(100vw - 32px);}
+.ft-rest-timer.open{left:16px;right:16px;justify-content:center;gap:10px;background:${C.card};border:1px solid ${C.line};border-radius:14px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.45);flex-wrap:wrap;max-width:calc(100vw - 32px);}
 .ft-rest-fab{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:${C.accent};color:${C.bg};border:none;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.45);}
 .ft-rest-fab:hover{background:#d9ff5c;}
 .ft-rest-time{font-size:18px;font-weight:700;min-width:46px;text-align:center;color:${C.accent};}
@@ -715,7 +719,6 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-verdict-neutral{color:${C.muted};background:rgba(141,146,128,.18);}
 
 /* таймер отдыха — крупный, во всю ширину + сигнал по нулю (фича #5) */
-.ft-rest-timer.open{left:16px;right:16px;justify-content:center;gap:10px;padding:12px 14px;}
 .ft-rest-timer.open .ft-rest-time{font-size:30px;min-width:92px;}
 .ft-rest-timer.open .ft-rest-preset{padding:8px 11px;font-size:13px;}
 .ft-rest-timer.done{background:${C.accent};border-color:${C.accent};animation:ft-rest-flash .5s ease-in-out 4;}

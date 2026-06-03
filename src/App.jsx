@@ -186,7 +186,7 @@ export default function App() {
             <span className={"ft-syncchip" + (syncErr ? " err" : "")}>
               <span className="ft-syncchip-dot" />{syncErr ? "ошибка" : "синк"}
             </span>
-            <button className="ft-icon-b" onClick={() => setSettingsOpen(true)} title="Настройки">
+            <button className="ft-icon-b ft-gear" onClick={() => setSettingsOpen(true)} title="Настройки">
               <Settings size={16} />
             </button>
             <button className="ft-logout" onClick={logout} title="Выйти">
@@ -223,7 +223,7 @@ export default function App() {
       )}
 
       {/* таймер отдыха — на уровне App, чтобы запущенный отсчёт переживал смену вкладок */}
-      <RestTimer controllerRef={restRef} />
+      <RestTimer controllerRef={restRef} notify={settings.restNotify} />
     </div>
   );
 }
@@ -266,6 +266,13 @@ function SettingsPanel({ settings, onSave, onClose }) {
   const [f, setF] = useState(() => withSettings(settings));
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   function save() { onSave(f); onClose(); }
+  // включение уведомлений — явный пользовательский жест: тут и запрашиваем разрешение
+  async function toggleNotify(on) {
+    if (on && "Notification" in window && Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch { /* отказ — оставим флаг, просто не сработает */ }
+    }
+    set("restNotify", on);
+  }
   return (
     <div className="ft-prog-overlay" onClick={onClose}>
       <div className="ft-prog-editor" onClick={(e) => e.stopPropagation()}>
@@ -279,12 +286,17 @@ function SettingsPanel({ settings, onSave, onClose }) {
             <span>Отдых по умолчанию, сек</span>
             <input className="ft-input ft-mono" type="number" min="10" max="600" step="5"
               value={f.restSeconds}
-              onChange={(e) => set("restSeconds", Math.max(10, num(e.target.value) || 90))} />
+              onChange={(e) => set("restSeconds", Math.min(600, Math.max(10, num(e.target.value) || 90)))} />
           </label>
           <label className="ft-set-row">
             <span>Авто-старт таймера после подхода</span>
             <input type="checkbox" checked={!!f.autoStartRest}
               onChange={(e) => set("autoStartRest", e.target.checked)} />
+          </label>
+          <label className="ft-set-row">
+            <span>Уведомлять, когда отдых окончен</span>
+            <input type="checkbox" checked={!!f.restNotify}
+              onChange={(e) => toggleNotify(e.target.checked)} />
           </label>
           <label className="ft-set-row">
             <span>Шаг прогрессии веса</span>
@@ -1054,8 +1066,10 @@ function restBeep() {
   } catch { /* звук необязателен */ }
 }
 
-// уведомление, если приложение свёрнуто/вкладка скрыта (Web Notifications, без сервера)
-function notifyRestDone() {
+// уведомление, если приложение свёрнуто/вкладка скрыта (Web Notifications, без сервера).
+// Включается тумблером в настройках (разрешение запрашивается там же по явному жесту).
+function notifyRestDone(enabled) {
+  if (!enabled) return;
   try {
     if (document.hidden && "Notification" in window && Notification.permission === "granted") {
       new Notification("Отдых окончен", { body: "Пора к следующему подходу", tag: "ft-rest" });
@@ -1063,7 +1077,7 @@ function notifyRestDone() {
   } catch { /* уведомление необязательно */ }
 }
 
-function RestTimer({ controllerRef }) {
+function RestTimer({ controllerRef, notify }) {
   const [remaining, setRemaining] = useState(0);
   const [running, setRunning] = useState(false);
   const [open, setOpen] = useState(false);
@@ -1086,17 +1100,13 @@ function RestTimer({ controllerRef }) {
       setDone(true);          // вспышка — всегда (главный сигнал на iOS)
       restBeep();             // звук
       navigator.vibrate?.([200, 100, 200]); // вибро — где поддерживается
-      notifyRestDone();       // уведомление, если в фоне
+      notifyRestDone(notify); // уведомление, если в фоне и включено в настройках
     }
-  }, [remaining, running]);
+  }, [remaining, running, notify]);
 
   function start(sec) {
     setDone(false);
     setRemaining(sec); setRunning(true); setOpen(true);
-    // мягкий опт-ин на уведомления при первом запуске
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
   }
   function toggle() { if (remaining > 0) setRunning((v) => !v); }
   function reset() { setRunning(false); setRemaining(0); setDone(false); }
