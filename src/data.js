@@ -258,29 +258,90 @@ export function exerciseMeta(sessions, name) {
   return { lastText, step };
 }
 
-/* ---- корреляция вес тела ↔ объём (графики #7) ---- */
-// коэффициент Пирсона по [[x,y]…]; null при <3 точках или нулевой дисперсии
-export function pearson(pairs) {
-  const n = pairs.length;
-  if (n < 3) return null;
-  let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
-  for (const [x, y] of pairs) { sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; }
-  const cov = n * sxy - sx * sy;
-  const dx = n * sxx - sx * sx;
-  const dy = n * syy - sy * sy;
-  if (dx <= 0 || dy <= 0) return null;
-  return cov / Math.sqrt(dx * dy);
+/* ---- метрики экрана «Обзор» ---- */
+// короткий месяц без точки: «март» → «март», «март.» → «март»
+export const monthShort = (d) =>
+  new Date(d).toLocaleDateString("ru-RU", { month: "short" }).replace(".", "");
+
+// короткое имя ключевого жима для hero-метрики
+export function shortLift(name) {
+  return (name || "")
+    .replace(/^Жим штанги лёжа$/i, "Жим лёжа")
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim();
 }
 
-// пары {вес тела, объём сессии} только для тренировок с известным весом
-export function weightVolumePairs(sessions, bio) {
-  return (sessions || [])
+// схема подходов «N×повт» (или диапазон повторов) для списка «Последние»
+export function setScheme(ex) {
+  const sets = (ex && ex.sets) || [];
+  if (!sets.length) return "—";
+  const reps = sets.map((s) => num(s.reps)).filter((r) => r != null);
+  if (!reps.length) return sets.length + " подх.";
+  const min = Math.min(...reps), max = Math.max(...reps);
+  return sets.length + "×" + (min === max ? min : min + "–" + max);
+}
+
+// «14200» → «14 200» (разряды по тысячам, обычным пробелом)
+export function num1000(v) {
+  return Math.round(v || 0).toLocaleString("ru-RU").replace(/[  ]/g, " ");
+}
+
+// hero: ключевой жим (предпочтительно «Жим штанги лёжа»), макс. рабочий вес.
+// Возвращает { name, value, delta (за ~8 недель), series:[{date,label,v}] } или null.
+export function heroLift(sessions, bio) {
+  if (!sessions || !sessions.length) return null;
+  const freq = {};
+  sessions.forEach((s) => s.exercises.forEach((e) => { freq[e.n] = (freq[e.n] || 0) + 1; }));
+  const preferred = canon("Жим лёжа"); // «Жим штанги лёжа»
+  const name = freq[preferred]
+    ? preferred
+    : Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
+  if (!name) return null;
+  const series = sessions
+    .filter((s) => s.exercises.some((e) => e.n === name))
     .map((s) => {
-      const w = bodyweightOn(bio, s.date);
-      if (w == null) return null;
-      return { weight: w, volume: Math.round(sessionVolume(s, bio)) };
+      const e = s.exercises.find((x) => x.n === name);
+      return { date: s.date, label: monthShort(s.date), v: exerciseTop(e, bodyweightOn(bio, s.date)) };
     })
-    .filter(Boolean);
+    .filter((p) => p.v > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!series.length) return null;
+  const value = series[series.length - 1].v;
+  const cutoff = new Date(series[series.length - 1].date).getTime() - 56 * 864e5;
+  let base = series[0];
+  for (const p of series) { if (new Date(p.date).getTime() <= cutoff) base = p; }
+  return { name, value, delta: value - base.v, series };
+}
+
+// тоннаж за последние 7 дней и % к предыдущей неделе (7–14 дней назад)
+export function weeklyTonnage(sessions, bio) {
+  if (!sessions || !sessions.length) return null;
+  const now = Date.now();
+  let cur = 0, prev = 0, hasCur = false, hasPrev = false;
+  for (const s of sessions) {
+    const age = (now - new Date(s.date).getTime()) / 864e5;
+    if (age < 0) continue;
+    const vol = sessionVolume(s, bio);
+    if (age <= 7) { cur += vol; hasCur = true; }
+    else if (age <= 14) { prev += vol; hasPrev = true; }
+  }
+  if (!hasCur && !hasPrev) return null;
+  const pct = hasPrev && prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null;
+  return { cur, prev, pct };
+}
+
+// последнее значение жира + дельта к замеру ~30 дней назад
+export function fatTrend(bio) {
+  const withFat = (bio || [])
+    .filter((b) => b.fat != null)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (!withFat.length) return null;
+  const latest = withFat[0];
+  const cutoff = new Date(latest.date).getTime() - 30 * 864e5;
+  let base = withFat.slice(1).find((b) => new Date(b.date).getTime() <= cutoff);
+  if (!base && withFat.length > 1) base = withFat[withFat.length - 1];
+  const delta = base ? +(latest.fat - base.fat).toFixed(1) : null;
+  return { value: latest.fat, delta };
 }
 
 // нормализует названия в сессии и объединяет совпавшие упражнения внутри неё
@@ -329,8 +390,6 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 
 .ft-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.ft-grid .span2{grid-column:1 / -1;}
-.ft-stat .ft-stat-v{font-size:26px;font-weight:700;line-height:1.1;margin-top:4px;}
 .ft-mini.ft-set{}
 .ft-bio-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
 .ft-bio-cell{background:${C.bg};border:1px solid ${C.line};border-radius:9px;padding:8px 9px;}
@@ -416,7 +475,7 @@ html,body{overflow-x:hidden;max-width:100%;}
 /* авто-прогрессия чип (фичи #3) */
 .ft-progress-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin:-2px 0 9px;padding:5px 9px;background:rgba(200,242,63,.1);border:1px solid ${C.accent2};color:${C.accent};border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;overflow:hidden;}
 .ft-progress-chip:hover{background:rgba(200,242,63,.18);}
-.ft-progress-chip.done{background:rgba(200,242,63,.22);border-color:${C.accent};}
+.ft-progress-chip.done{background:rgba(200,242,63,.22);border-color:${C.accent};cursor:default;}
 .ft-progress-chip .ft-muted{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 /* program editor (фичи #2) */
@@ -433,6 +492,38 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-prog-ex{padding:11px 12px 10px;margin-bottom:0;background:${C.bg};}
 .ft-prog-ex .ft-ex-h{gap:8px;}
 .ft-prog-ex .ft-ex-h .ft-input{flex:1;}
+
+/* логотип-вордмарк (буква O — знак-болт) */
+.ft-logo-mark{display:inline-flex;align-items:center;}
+.ft-logo-o{width:.82em;height:.82em;margin:0 -1px;}
+
+/* шапка: блок действий + индикатор синка */
+.ft-head-actions{display:flex;align-items:center;gap:10px;flex:none;}
+.ft-syncchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${C.muted};}
+.ft-syncchip-dot{width:8px;height:8px;border-radius:50%;background:${C.accent};box-shadow:0 0 6px ${C.accent};}
+.ft-syncchip.err{color:${C.danger};}
+.ft-syncchip.err .ft-syncchip-dot{background:${C.danger};box-shadow:none;}
+
+/* hero-метрика «Обзора» */
+.ft-hero{padding:16px 16px 8px;}
+.ft-hero-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.ft-hero-label{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:${C.muted};}
+.ft-badge{display:inline-flex;align-items:center;gap:3px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:${C.bg};background:${C.accent};border-radius:8px;padding:4px 8px;white-space:nowrap;}
+.ft-badge.down{background:${C.blue};}
+.ft-hero-v{font-family:'Bricolage Grotesque',sans-serif;font-size:54px;font-weight:800;line-height:1;letter-spacing:-1px;margin:8px 0 4px;}
+.ft-hero-unit{font-size:20px;font-weight:700;color:${C.muted};margin-left:8px;letter-spacing:0;}
+
+/* карточки-метрики «Обзора» */
+.ft-stat2{display:flex;flex-direction:column;}
+.ft-stat2-v{font-size:24px;font-weight:700;line-height:1.1;margin-top:4px;}
+.ft-stat2-sub{display:inline-flex;align-items:center;gap:3px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:700;color:${C.accent};margin-top:4px;}
+.ft-stat2-sub.down{color:${C.blue};}
+
+/* список «Последние» */
+.ft-section-h{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.6px;text-transform:uppercase;color:${C.muted};margin-bottom:8px;}
+.ft-recent-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid ${C.line};font-size:13px;}
+.ft-recent-row:first-of-type{border-top:none;}
+.ft-recent-row .ft-mono{font-weight:600;white-space:nowrap;}
 
 /* token gate */
 .ft-gate{min-height:100vh;min-height:100dvh;height:100dvh;display:flex;align-items:center;justify-content:center;padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));overflow:hidden;}
