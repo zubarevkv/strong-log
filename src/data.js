@@ -297,31 +297,35 @@ export function detectSessionPRs(history, session, bio) {
 
 /* ---- таблица личных рекордов: макс. реальный рабочий вес в подходе по упражнению ----
  * Не 1ПМ, а фактический максимальный вес одного подхода + дата, когда впервые достигнут
- * (и повторы того подхода). Канонизация через exerciseTop. BW-упражнения («свой вес/помощь»)
- * пропускаем — там столбец «вес» это помощь/утяжелитель, не сопоставим как PR. */
-export function exercisePRList(sessions, bio) {
+ * (и повторы того подхода). Канонизация через canon; BW-упражнения («свой вес/помощь»,
+ * учитывая алиасы вроде «Отжимания на брусьях» → «Брусья») пропускаем — там столбец «вес»
+ * это помощь/утяжелитель, не сопоставим как PR. Вес тела для не-BW упражнений на нагрузку
+ * не влияет, поэтому bio здесь не нужен. */
+export function exercisePRList(sessions) {
   const best = {}; // canon -> { name, weight, reps, date }
-  const sorted = [...(sessions || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...(sessions || [])].sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
+  );
   for (const s of sorted) {
-    const bw = bodyweightOn(bio, s.date);
     for (const e of s.exercises) {
       const cn = canon(e.n);
       if (BW_EXERCISES.has(cn)) continue;
-      const top = exerciseTop(e, bw);
+      const top = exerciseTop(e, null);
       if (!top || top <= 0) continue;
       const cur = best[cn];
       if (cur && top <= cur.weight) continue; // строго больше → первая дата достижения остаётся
-      // повторы того подхода, что дал максимум
+      // макс. повторы среди подходов, давших этот вес (нечисловые «до отказа» пропускаем)
       let reps = null;
       for (const st of e.sets) {
-        if (setLoad(st, e.n, bw) === top) { reps = num(st.reps); break; }
+        if (setLoad(st, e.n, null) !== top) continue;
+        const r = num(st.reps);
+        if (r != null && (reps == null || r > reps)) reps = r;
       }
       best[cn] = { name: e.n, weight: top, reps, date: s.date };
     }
   }
   return Object.values(best).sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
-
 
 // шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
 const LEG_RE = /присед|носк|ног|выпад|гоблет|икр/i;

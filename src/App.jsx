@@ -1386,7 +1386,7 @@ function Progress({ sessions, bio }) {
   const [ex, setEx] = useState("");
   const [metric, setMetric] = useState("top");
   const [bioMetric, setBioMetric] = useState("weight");
-  const prList = useMemo(() => exercisePRList(sessions, bio), [sessions, bio]);
+  const prList = useMemo(() => exercisePRList(sessions), [sessions]);
 
   useEffect(() => { if (!ex && exNames.length) setEx(exNames[0]); }, [exNames, ex]);
 
