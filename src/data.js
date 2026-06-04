@@ -295,7 +295,38 @@ export function detectSessionPRs(history, session, bio) {
   return prs;
 }
 
-/* ---- авто-прогрессия нагрузки (фичи #3) ---- */
+/* ---- таблица личных рекордов: макс. реальный рабочий вес в подходе по упражнению ----
+ * Не 1ПМ, а фактический максимальный вес одного подхода + дата, когда впервые достигнут
+ * (и повторы того подхода). Канонизация через canon; BW-упражнения («свой вес/помощь»,
+ * учитывая алиасы вроде «Отжимания на брусьях» → «Брусья») пропускаем — там столбец «вес»
+ * это помощь/утяжелитель, не сопоставим как PR. Вес тела для не-BW упражнений на нагрузку
+ * не влияет, поэтому bio здесь не нужен. */
+export function exercisePRList(sessions) {
+  const best = {}; // canon -> { name, weight, reps, date }
+  const sorted = [...(sessions || [])].sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
+  );
+  for (const s of sorted) {
+    for (const e of s.exercises) {
+      const cn = canon(e.n);
+      if (BW_EXERCISES.has(cn)) continue;
+      const top = exerciseTop(e, null);
+      if (!top || top <= 0) continue;
+      const cur = best[cn];
+      if (cur && top <= cur.weight) continue; // строго больше → первая дата достижения остаётся
+      // макс. повторы среди подходов, давших этот вес (нечисловые «до отказа» пропускаем)
+      let reps = null;
+      for (const st of e.sets) {
+        if (setLoad(st, e.n, null) !== top) continue;
+        const r = num(st.reps);
+        if (r != null && (reps == null || r > reps)) reps = r;
+      }
+      best[cn] = { name: e.n, weight: top, reps, date: s.date };
+    }
+  }
+  return Object.values(best).sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
 // шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
 const LEG_RE = /присед|носк|ног|выпад|гоблет|икр/i;
 export function stepKg(name) { return LEG_RE.test(name || "") ? 5 : 2.5; }
@@ -754,6 +785,14 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-set-row:last-child{border-bottom:none;}
 .ft-set-row .ft-input{max-width:96px;text-align:right;}
 .ft-set-row input[type=checkbox]{width:18px;height:18px;accent-color:${C.accent};}
+
+/* личные рекорды (вкладка «Прогресс») */
+.ft-pr-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;}
+.ft-pr-card{padding:12px 14px;display:flex;flex-direction:column;gap:3px;}
+.ft-pr-name{font-weight:700;font-size:14px;color:${C.txt};}
+.ft-pr-val{font-size:20px;font-weight:700;color:${C.accent};}
+.ft-pr-val .ft-pr-reps{font-size:13px;font-weight:600;color:${C.muted};}
+.ft-pr-date{margin-top:1px;}
 
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}
