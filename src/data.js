@@ -324,7 +324,10 @@ export function exercisePRList(sessions) {
       best[cn] = { name: e.n, weight: top, reps, date: s.date };
     }
   }
-  return Object.values(best).sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  // сортировка по дате достижения: свежие рекорды выше, давние — ниже (тай-брейк по имени)
+  return Object.values(best).sort(
+    (a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name, "ru")
+  );
 }
 
 // шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
