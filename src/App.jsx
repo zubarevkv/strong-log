@@ -18,7 +18,7 @@ import {
   suggestForm, exerciseMeta, lastExerciseSets, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
   exerciseE1rmBest, detectSessionPRs, suggestProgression, recompTrend,
-  exerciseNames, SETTINGS_DEFAULTS, withSettings,
+  exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -1386,6 +1386,7 @@ function Progress({ sessions, bio }) {
   const [ex, setEx] = useState("");
   const [metric, setMetric] = useState("top");
   const [bioMetric, setBioMetric] = useState("weight");
+  const prList = useMemo(() => exercisePRList(sessions, bio), [sessions, bio]);
 
   useEffect(() => { if (!ex && exNames.length) setEx(exNames[0]); }, [exNames, ex]);
 
@@ -1567,6 +1568,27 @@ function Progress({ sessions, bio }) {
           </>
         )}
       </div>
+
+      {/* ЛИЧНЫЕ РЕКОРДЫ — макс. реальный рабочий вес в подходе по упражнению */}
+      <div className="ft-section-h" style={{ marginTop: 18 }}>Личные рекорды</div>
+      {prList.length === 0 ? (
+        <div className="ft-muted ft-mini" style={{ padding: "0 2px" }}>
+          Запиши тренировки с рабочим весом — здесь появятся рекорды по упражнениям.
+        </div>
+      ) : (
+        <div className="ft-pr-list">
+          {prList.map((p) => (
+            <div key={p.name} className="ft-card ft-pr-card">
+              <div className="ft-pr-name">{p.name}</div>
+              <div className="ft-pr-val ft-mono">
+                {+p.weight.toFixed(1)} кг
+                {p.reps != null && <span className="ft-pr-reps"> × {p.reps}</span>}
+              </div>
+              <div className="ft-pr-date ft-mini ft-muted">рекорд: {fmtDate(p.date)}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
