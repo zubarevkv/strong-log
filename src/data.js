@@ -658,7 +658,7 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-input:focus{border-color:${C.accent};}
 .ft-input[type=date]{width:auto;}
 
-.ft-ex{padding:12px 12px 10px;}
+.ft-ex{padding:12px;}
 .ft-ex-h{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
 .ft-ex-num{display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:${C.bg};border:1px solid ${C.line};border-radius:6px;font-size:12px;color:${C.accent};flex:none;}
 .ft-ex-name{font-weight:600;font-size:14px;}
@@ -666,7 +666,7 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-ex-toggle .ft-ex-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .ft-ex-toggle svg{color:${C.muted};flex:none;}
 .ft-ex-toggle:hover .ft-ex-name,.ft-ex-toggle:hover svg{color:${C.accent};}
-.ft-ex-preview{width:100%;display:flex;align-items:center;text-align:left;background:none;border:none;border-top:1px dashed ${C.line};margin-top:2px;padding:8px 0;min-height:50px;color:${C.muted};font-size:13px;cursor:pointer;}
+.ft-ex-preview{width:100%;display:flex;align-items:center;text-align:left;background:none;border:none;border-top:1px dashed ${C.line};margin-top:2px;padding:8px 0 0;color:${C.muted};font-size:13px;cursor:pointer;}
 .ft-ex-preview:hover{color:${C.accent};}
 .ft-chip-undo{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 6px;background:none;border:1px solid ${C.line};color:${C.muted};border-radius:6px;font-size:10.5px;font-weight:600;cursor:pointer;transition:.12s;}
 .ft-chip-undo:hover{color:${C.danger};border-color:${C.danger};background:rgba(255,107,94,.1);}
@@ -688,6 +688,8 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-hist-toggle{width:100%;background:none;border:1px solid ${C.line};color:${C.txt};border-radius:10px;padding:10px;min-height:50px;font-weight:600;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin:14px 0 12px;}
 .ft-hist .ft-mini{margin-top:3px;}
 .ft-hist .ft-mini .ft-mono{color:${C.txt};}
+/* в карточках истории/замеров иконки не раздуваем до 50px — иначе верхний ряд делает паддинг визуально больше боковых */
+.ft-hist .ft-icon-b{min-height:36px;min-width:36px;}
 
 .ft-bio-form{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;}
 .ft-field{display:flex;flex-direction:column;gap:4px;}
@@ -699,7 +701,7 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-seg-in{padding:6px 6px;text-align:center;}
 
 .ft-pills{display:flex;gap:6px;}
-.ft-pill{display:inline-flex;align-items:center;background:${C.bg};border:1px solid ${C.line};color:${C.muted};border-radius:25px;padding:6px 16px;min-height:50px;font-size:13px;font-weight:600;cursor:pointer;transition:.12s;}
+.ft-pill{display:inline-flex;align-items:center;background:${C.bg};border:1px solid ${C.line};color:${C.muted};border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:.12s;}
 .ft-pill.on{background:${C.accent};color:${C.bg};border-color:${C.accent};}
 .ft-period-card{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .ft-pick-list{display:flex;flex-direction:column;gap:6px;margin-top:10px;max-height:50vh;overflow-y:auto;}
