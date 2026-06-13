@@ -15,9 +15,9 @@ import {
   C, BUILTIN_TEMPLATES, BIO_METRICS, SEGMENTS, SEG_FIELDS, CSS,
   normSession, uid, today, fmtDate, num,
   BW_EXERCISES, bodyweightOn, exerciseVolume, exerciseTop, sessionVolume, setLoad,
-  suggestForm, exerciseMeta, lastExerciseSets, prSessionMap,
+  suggestForm, lastExerciseSets, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
-  exerciseE1rmBest, detectSessionPRs, suggestProgression, recompTrend,
+  exerciseE1rmBest, detectSessionPRs, recompTrend,
   exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings, canon, weeklyStreak,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
@@ -559,10 +559,6 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false); // выбор упражнения из базы для добавления в форму
-  // упражнение -> снимок подходов ДО прибавки «+вес» (для отмены применения)
-  const [appliedBump, setAppliedBump] = useState(() => new Map());
-  // упражнение -> снимок подходов ДО прогрессии (фича #3, для отмены)
-  const [appliedProg, setAppliedProg] = useState(() => new Map());
   // раскрытые упражнения (по имени); по умолчанию все свёрнуты — открываются по клику
   const [openEx, setOpenEx] = useState(() => new Set());
   function toggleEx(name) {
@@ -607,74 +603,12 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     }
   }, [templates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // мета прогрессии по упражнениям текущей формы (имена + история).
-  // ключ через JSON.stringify — безопасно для имён с любыми символами
-  const exNamesKey = JSON.stringify(form.map((e) => e.n));
-  const exMeta = useMemo(() => {
-    const m = {};
-    JSON.parse(exNamesKey).forEach((n) => { if (n) m[n] = exerciseMeta(sessions, n); });
-    return m;
-  }, [exNamesKey, sessions]);
-
-  // предложение прогрессии по каждому упражнению формы (фича #3)
-  const progMap = useMemo(() => form.map((e) => {
-    const meta = exMeta[e.n];
-    if (!meta || !meta.lastText) return null;
-    const hint = e.sets.find((s) => s.hint)?.hint || "";
-    const step = settings?.progressionStep ?? meta.step;
-    return suggestProgression(e.n, lastExerciseSets(sessions, e.n), hint, step);
-  }), [form, exMeta, sessions, settings]);
-
-  function bumpWeights(ei, step) {
-    const name = form[ei]?.n;
-    if (name && appliedBump.has(name)) return; // уже применяли — игнорируем
-    const snap = structuredClone(form[ei].sets); // запоминаем для отмены
-    setForm((f) => {
-      const c = structuredClone(f);
-      c[ei].sets = c[ei].sets.map((s) => ({
-        ...s,
-        weight: (s.weight === "" || s.weight == null) ? s.weight : Number(s.weight) + step,
-      }));
-      return c;
-    });
-    if (name) setAppliedBump((prev) => new Map(prev).set(name, snap));
-  }
-  // отменить прибавку «+вес» — вернуть подходы к снимку до применения
-  function undoBump(ei, name) {
-    const snap = appliedBump.get(name);
-    setForm((f) => { const c = structuredClone(f); if (snap) c[ei].sets = structuredClone(snap); return c; });
-    setAppliedBump((prev) => { const m = new Map(prev); m.delete(name); return m; });
-  }
-
-  // применить предложение прогрессии: проставить вес/целевые повторы во все подходы (фича #3)
-  function applyProgression(ei, prog) {
-    const name = form[ei]?.n;
-    if (!prog || (name && appliedProg.has(name))) return;
-    const snap = structuredClone(form[ei].sets); // запоминаем для отмены
-    setForm((f) => {
-      const c = structuredClone(f);
-      c[ei].sets = c[ei].sets.map((s) => ({
-        ...s,
-        weight: prog.weight != null ? prog.weight : s.weight,
-        reps: prog.reps != null ? prog.reps : s.reps,
-      }));
-      return c;
-    });
-    if (name) setAppliedProg((prev) => new Map(prev).set(name, snap));
-  }
-  // отменить прогрессию — вернуть подходы к снимку до применения
-  function undoProgression(ei, name) {
-    const snap = appliedProg.get(name);
-    setForm((f) => { const c = structuredClone(f); if (snap) c[ei].sets = structuredClone(snap); return c; });
-    setAppliedProg((prev) => { const m = new Map(prev); m.delete(name); return m; });
-  }
-
   function pick(id) {
     const tpl = templates.find((t) => t.id === id) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
     setEditingId(null);
-    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set()); setConfirmDelEx(null);
+    setOpenEx(new Set()); setConfirmDelEx(null);
   }
   function startEdit(s) {
     setEditingId(s.id);
@@ -686,7 +620,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     })));
     setOpenHist(false);
     setConfirmId(null);
-    setAppliedBump(new Map()); setAppliedProg(new Map()); setConfirmDelEx(null);
+    setConfirmDelEx(null);
     setOpenEx(new Set(s.exercises.map((e) => e.n))); // при редактировании показываем подходы сразу
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -695,7 +629,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
-    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set()); setConfirmDelEx(null);
+    setOpenEx(new Set()); setConfirmDelEx(null);
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -770,7 +704,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       const prs = detectSessionPRs(sessions, normSession(session), bio);
       setForm(suggestForm(tpl, sessions));
       setEditingId(null);
-      setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set()); setConfirmDelEx(null);
+      setOpenEx(new Set()); setConfirmDelEx(null);
       setOpenHist(true);
       if (prs.length) flash(prCelebration(prs), true);
       else flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
@@ -926,40 +860,6 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
           )}
 
           {open && <>
-          {exMeta[e.n]?.lastText && (
-            appliedBump.has(e.n) ? (
-              <div className="ft-progress-chip done">
-                <Check size={12} /> применено
-                <button className="ft-chip-undo" onClick={() => undoBump(ei, e.n)} title="Отменить прибавку">
-                  <X size={11} /> отменить
-                </button>
-              </div>
-            ) : (
-              <button className="ft-progress-chip"
-                onClick={() => bumpWeights(ei, exMeta[e.n].step)}
-                title={`Прибавить ${exMeta[e.n].step} кг ко всем подходам`}>
-                <ArrowUp size={12} /> +{exMeta[e.n].step} кг
-                <span className="ft-muted">· в прошлый раз {exMeta[e.n].lastText}</span>
-              </button>
-            )
-          )}
-          {progMap[ei] && progMap[ei].note && (
-            <div className="ft-prog-sugg">
-              <span className="ft-prog-sugg-note">{progMap[ei].note}</span>
-              {appliedProg.has(e.n) ? (
-                <span className="ft-prog-sugg-done">
-                  <Check size={12} /> применено
-                  <button className="ft-chip-undo" onClick={() => undoProgression(ei, e.n)} title="Отменить">
-                    <X size={11} /> отменить
-                  </button>
-                </span>
-              ) : (
-                <button className="ft-prog-sugg-b" onClick={() => applyProgression(ei, progMap[ei])}>
-                  применить
-                </button>
-              )}
-            </div>
-          )}
           {BW_EXERCISES.has(e.n) && (
             <div className="ft-mini ft-muted ft-bw-hint">
               Вес тела учитывается автоматически. Помощь — со знаком «+», утяжелитель — со знаком «−».

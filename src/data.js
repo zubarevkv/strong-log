@@ -469,52 +469,6 @@ export function suggestForm(tpl, sessions) {
   });
 }
 
-// мета для чипа прогрессии: текст прошлой тренировки + шаг прибавки
-export function exerciseMeta(sessions, name) {
-  const step = stepKg(name);
-  const hist = lastExerciseSets(sessions, name);
-  if (!hist || !hist.length) return { lastText: "", step };
-  const lastText = hist
-    .map((s) => (s.weight ? s.weight : 0) + "×" + (s.reps ?? "—"))
-    .join(" / ");
-  return { lastText, step };
-}
-
-// диапазон повторов из hint шаблона («6–8», «8», «8-10») → { min, max } | null
-function parseRepRange(hint) {
-  const nums = String(hint || "").match(/\d+/g);
-  if (!nums) return null;
-  const arr = nums.map(Number);
-  return { min: Math.min(...arr), max: Math.max(...arr) };
-}
-
-// предложение прогрессии (двойная прогрессия) по последней тренировке упражнения.
-// Если все подходы достигли верха диапазона повторов → +step по весу (цель — низ диапазона);
-// иначе тот же вес, цель — добить повторы до верха. BW — только по повторам.
-// Возвращает { weight, reps, bumped, note } | null.
-export function suggestProgression(name, lastSets, hint, step) {
-  const sets = (lastSets || []).filter((s) => num(s.weight) != null || num(s.reps) != null);
-  if (!sets.length) return null;
-  const reps = sets.map((s) => num(s.reps)).filter((r) => r != null && Number.isFinite(r));
-  const range = parseRepRange(hint);
-  const top = range ? range.max : (reps.length ? Math.max(...reps) : null);
-  const bottom = range ? range.min : top;
-  const allHitTop = top != null && reps.length === sets.length && reps.every((r) => r >= top);
-  const isBW = BW_EXERCISES.has(canon(name));
-  if (isBW) {
-    const target = allHitTop && top != null ? top + 1 : top;
-    if (target == null) return null;
-    return { weight: null, reps: target, bumped: !!allHitTop, note: `→ цель ${target} повт` };
-  }
-  const lastW = num(sets[sets.length - 1].weight) || num(sets[0].weight) || 0;
-  if (allHitTop && lastW > 0) {
-    const w = +(lastW + (step || stepKg(name))).toFixed(2);
-    return { weight: w, reps: bottom, bumped: true, note: `→ попробуй ${w}×${bottom}` };
-  }
-  if (top == null) return null;
-  return { weight: lastW || null, reps: top, bumped: false, note: `→ добей повторы до ${top}` };
-}
-
 /* ---- метрики экрана «Обзор» ---- */
 // короткий месяц без точки: «март» → «март», «март.» → «март»
 export const monthShort = (d) =>
@@ -681,11 +635,11 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-mini{font-size:12px;}
 .ft-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%;}
 
-.ft-head{padding:calc(22px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) 14px calc(18px + env(safe-area-inset-left));}
-.ft-head-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.ft-head{padding:calc(14px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) 12px calc(18px + env(safe-area-inset-left));}
+.ft-head-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .ft-logo{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:22px;letter-spacing:-.5px;display:flex;align-items:center;gap:8px;}
 .ft-head-sub{color:${C.muted};font-size:12.5px;margin-top:2px;}
-.ft-logout{background:none;border:1px solid ${C.line};color:${C.muted};border-radius:8px;padding:6px 10px;min-height:44px;cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;}
+.ft-logout{background:none;border:1px solid ${C.line};color:${C.muted};border-radius:8px;padding:0 10px;height:38px;cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;}
 .ft-logout:hover{color:${C.txt};border-color:#3a4030;}
 
 .ft-sync{display:flex;align-items:center;gap:6px;font-size:11.5px;margin-top:6px;}
@@ -743,8 +697,6 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-ex-toggle:hover .ft-ex-name,.ft-ex-toggle:hover svg{color:${C.accent};}
 .ft-ex-preview{width:100%;display:flex;align-items:center;text-align:left;background:none;border:none;border-top:1px dashed ${C.line};margin-top:2px;padding:8px 0 0;color:${C.muted};font-size:13px;cursor:pointer;}
 .ft-ex-preview:hover{color:${C.accent};}
-.ft-chip-undo{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 6px;background:none;border:1px solid ${C.line};color:${C.muted};border-radius:6px;font-size:10.5px;font-weight:600;cursor:pointer;transition:.12s;}
-.ft-chip-undo:hover{color:${C.danger};border-color:${C.danger};background:rgba(255,107,94,.1);}
 .ft-sets{display:flex;flex-direction:column;gap:6px;}
 .ft-set{display:grid;grid-template-columns:24px 1fr 1fr 50px;gap:8px;align-items:center;}
 .ft-set-head{padding:0 2px;}
@@ -803,12 +755,6 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 /* бейдж личного рекорда (графики #1) */
 .ft-pr{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;color:${C.accent};background:rgba(200,242,63,.12);border:1px solid ${C.accent2};border-radius:6px;padding:1px 4px;}
 
-/* авто-прогрессия чип (фичи #3) */
-.ft-progress-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin:-2px 0 9px;padding:5px 9px;background:rgba(200,242,63,.1);border:1px solid ${C.accent2};color:${C.accent};border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;overflow:hidden;}
-.ft-progress-chip:hover{background:rgba(200,242,63,.18);}
-.ft-progress-chip.done{background:rgba(200,242,63,.22);border-color:${C.accent};cursor:default;}
-.ft-progress-chip .ft-muted{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-
 /* program editor (фичи #2) */
 .ft-prog-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
 .ft-prog-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;background:${C.bg};border:1px solid ${C.line};color:${C.txt};border-radius:8px;padding:6px 12px;min-height:50px;font-size:13px;font-weight:600;cursor:pointer;transition:.12s;}
@@ -830,6 +776,7 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 
 /* шапка: блок действий + индикатор синка */
 .ft-head-actions{display:flex;align-items:center;gap:10px;flex:none;}
+.ft-head-actions .ft-icon-b{min-width:38px;min-height:38px;}
 .ft-syncchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${C.muted};}
 .ft-syncchip-dot{width:8px;height:8px;border-radius:50%;background:${C.accent};box-shadow:0 0 6px ${C.accent};}
 .ft-syncchip.err{color:${C.danger};}
@@ -865,13 +812,6 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 /* празднование PR (фича #2) */
 .ft-toast.pr{background:${C.accent};color:${C.bg};border-color:${C.accent};font-weight:700;animation:ft-pop .25s ease, ft-pr-pulse 1.1s ease 1;}
 @keyframes ft-pr-pulse{0%{box-shadow:0 0 0 0 rgba(200,242,63,.55);}100%{box-shadow:0 0 0 16px rgba(200,242,63,0);}}
-
-/* предложение прогрессии (фича #3) */
-.ft-prog-sugg{display:flex;align-items:center;gap:8px;margin:-4px 0 9px;font-size:11.5px;flex-wrap:wrap;}
-.ft-prog-sugg-note{color:${C.blue};font-weight:700;}
-.ft-prog-sugg-b{background:${C.bg};border:1px solid ${C.blue};color:${C.blue};border-radius:7px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:.12s;}
-.ft-prog-sugg-b:hover{background:rgba(111,211,255,.14);}
-.ft-prog-sugg-done{display:inline-flex;align-items:center;gap:4px;color:${C.muted};font-weight:600;}
 
 /* дашборд рекомпозиции — вердикт (фича #4) */
 .ft-verdict{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:8px;white-space:nowrap;}
