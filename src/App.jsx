@@ -18,7 +18,7 @@ import {
   suggestForm, exerciseMeta, lastExerciseSets, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
   exerciseE1rmBest, detectSessionPRs, suggestProgression, recompTrend,
-  exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings,
+  exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings, canon,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -514,10 +514,12 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const [toast, setToast] = useState("");
   const [toastPr, setToastPr] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
+  const [confirmDelEx, setConfirmDelEx] = useState(null); // индекс упражнения, ожидающего подтверждения удаления
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false); // выбор упражнения из базы для добавления в форму
   // упражнение -> снимок подходов ДО прибавки «+вес» (для отмены применения)
   const [appliedBump, setAppliedBump] = useState(() => new Map());
   // упражнение -> снимок подходов ДО прогрессии (фича #3, для отмены)
@@ -540,6 +542,14 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const idx = templates.findIndex((t) => t.id === last.templateId);
     return idx < 0 ? templates[0].id : templates[(idx + 1) % templates.length].id;
   }, [sessions, templates]);
+  // каталог упражнений для добавления в форму: из всех программ + из истории, канонизировано и без дублей
+  const exerciseCatalog = useMemo(() => {
+    const set = new Set();
+    templates.forEach((t) => (t.ex || []).forEach((e) => { if (e.n) set.add(canon(e.n)); }));
+    exerciseNames(sessions).forEach((n) => set.add(n));
+    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [templates, sessions]);
+
   const toastTimer = useRef(null);
   function flash(msg, pr = false) {
     setToast(msg); setToastPr(pr);
@@ -625,7 +635,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
     setEditingId(null);
-    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set());
+    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set()); setConfirmDelEx(null);
   }
   function startEdit(s) {
     setEditingId(s.id);
@@ -637,7 +647,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     })));
     setOpenHist(false);
     setConfirmId(null);
-    setAppliedBump(new Map()); setAppliedProg(new Map());
+    setAppliedBump(new Map()); setAppliedProg(new Map()); setConfirmDelEx(null);
     setOpenEx(new Set(s.exercises.map((e) => e.n))); // при редактировании показываем подходы сразу
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -646,7 +656,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
     setTplId(tpl.id);
     setForm(suggestForm(tpl, sessions));
-    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set());
+    setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set()); setConfirmDelEx(null);
   }
   function setCell(ei, si, key, val) {
     setForm((f) => {
@@ -673,6 +683,20 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   }
   function delExercise(ei) {
     setForm((f) => f.filter((_, i) => i !== ei));
+    setConfirmDelEx(null);
+  }
+  // добавить упражнение из базы (или новое) в текущую форму; веса/повторы — из последней тренировки, если была
+  function addExerciseToForm(name) {
+    const n = canon((name || "").trim());
+    setPickerOpen(false);
+    if (!n) return;
+    setOpenEx((prev) => new Set(prev).add(n)); // раскрываем сразу
+    if (form.some((e) => canon(e.n) === n)) { flash("Упражнение уже в тренировке"); return; }
+    const hist = lastExerciseSets(sessions, n);
+    const sets = (hist && hist.length)
+      ? hist.map((s) => ({ weight: s.weight ?? "", reps: s.reps ?? "", hint: "" }))
+      : [{ weight: "", reps: "", hint: "" }];
+    setForm((f) => [...f, { n, sets }]);
   }
   async function commit() {
     if (saving) return;
@@ -695,7 +719,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       const prs = detectSessionPRs(sessions, normSession(session), bio);
       setForm(suggestForm(tpl, sessions));
       setEditingId(null);
-      setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set());
+      setAppliedBump(new Map()); setAppliedProg(new Map()); setOpenEx(new Set()); setConfirmDelEx(null);
       setOpenHist(true);
       if (prs.length) flash(prCelebration(prs), true);
       else flash(`${tpl.name} ${wasEditing ? "обновлена" : "сохранена"} — ${fmtDate(date)}`);
@@ -828,10 +852,19 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
               <span className="ft-ex-name">{e.n}</span>
               {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
-            <button className="ft-icon-b ft-ex-del" onClick={() => delExercise(ei)}
-              title="Убрать упражнение (не делал)">
-              <Trash2 size={15} />
-            </button>
+            {confirmDelEx === ei ? (
+              <span className="ft-row ft-ex-del" style={{ gap: 4, flex: "none" }}>
+                <button className="ft-confirm-del" onClick={() => delExercise(ei)}>Убрать</button>
+                <button className="ft-icon-b" onClick={() => setConfirmDelEx(null)} title="Отмена">
+                  <X size={15} />
+                </button>
+              </span>
+            ) : (
+              <button className="ft-icon-b ft-ex-del" onClick={() => setConfirmDelEx(ei)}
+                title="Убрать упражнение (не делал)">
+                <Trash2 size={15} />
+              </button>
+            )}
           </div>
 
           {!open && (
@@ -907,6 +940,18 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
         </div>
         );
       })}
+
+      <button className="ft-add" onClick={() => setPickerOpen(true)}>
+        <ListPlus size={14} /> добавить упражнение из базы
+      </button>
+
+      {pickerOpen && (
+        <ExercisePicker
+          catalog={exerciseCatalog}
+          onPick={addExerciseToForm}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       {editingId && (
         <div className="ft-edit-bar ft-mini">
@@ -1100,6 +1145,43 @@ function ProgramEditor({ templates, addTemplate, removeTemplate, startNew, onClo
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------- EXERCISE PICKER (фича #5) ---------------------------- */
+// выбор упражнения из базы (программы + история) для добавления в текущую тренировку;
+// если введённого названия нет в каталоге — можно добавить его как новое
+function ExercisePicker({ catalog, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  const ql = q.trim().toLowerCase();
+  const filtered = ql ? catalog.filter((n) => n.toLowerCase().includes(ql)) : catalog;
+  const exact = catalog.some((n) => n.toLowerCase() === ql);
+  return (
+    <div className="ft-prog-overlay" onClick={onClose}>
+      <div className="ft-prog-editor" onClick={(e) => e.stopPropagation()}>
+        <div className="ft-row ft-prog-head">
+          <strong>Добавить упражнение</strong>
+          <button className="ft-icon-b" onClick={onClose} title="Закрыть"><X size={18} /></button>
+        </div>
+        <input className="ft-input" autoFocus placeholder="Поиск или новое название…"
+          value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="ft-pick-list">
+          {q.trim() && !exact && (
+            <button className="ft-pick-item ft-pick-new" onClick={() => onPick(q.trim())}>
+              <Plus size={15} /> Добавить «{q.trim()}»
+            </button>
+          )}
+          {filtered.map((n) => (
+            <button key={n} className="ft-pick-item" onClick={() => onPick(n)}>{n}</button>
+          ))}
+          {!filtered.length && !q.trim() && (
+            <div className="ft-mini ft-muted" style={{ padding: "8px 2px" }}>
+              Пока нет известных упражнений — введи название вручную.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1376,6 +1458,14 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
 }
 
 /* ---------------------------- PROGRESS ---------------------------- */
+// периоды отображения временных графиков (дни; 0 = весь период)
+const PROGRESS_PERIODS = [
+  { k: 30, label: "30 дней" },
+  { k: 90, label: "90 дней" },
+  { k: 365, label: "365 дней" },
+  { k: 0, label: "Весь период" },
+];
+
 function Progress({ sessions, bio }) {
   const exNames = useMemo(() => {
     const set = new Set();
@@ -1386,9 +1476,20 @@ function Progress({ sessions, bio }) {
   const [ex, setEx] = useState("");
   const [metric, setMetric] = useState("top");
   const [bioMetric, setBioMetric] = useState("weight");
+  const [period, setPeriod] = useState(0); // дни; 0 = весь период
   const prList = useMemo(() => exercisePRList(sessions), [sessions]);
 
   useEffect(() => { if (!ex && exNames.length) setEx(exNames[0]); }, [exNames, ex]);
+
+  // нижняя граница дат для графиков: today() − period дней; null = без ограничения.
+  // даты в формате ISO «YYYY-MM-DD» сравниваются лексикографически, поэтому строкового cutoff достаточно
+  const periodCutoff = useMemo(() => {
+    if (!period) return null;
+    const d = new Date();
+    d.setDate(d.getDate() - period);
+    return d.toISOString().slice(0, 10);
+  }, [period]);
+  const inPeriod = (date) => !periodCutoff || date >= periodCutoff;
 
   // --- сегменты тела: сравнение двух замеров (радар) ---
   const segBio = useMemo(
@@ -1421,7 +1522,7 @@ function Progress({ sessions, bio }) {
   const exData = useMemo(() => {
     if (!ex) return [];
     return sessions
-      .filter((s) => s.exercises.some((e) => e.n === ex))
+      .filter((s) => inPeriod(s.date) && s.exercises.some((e) => e.n === ex))
       .map((s) => {
         const e = s.exercises.find((x) => x.n === ex);
         const bw = bodyweightOn(bio, s.date);
@@ -1440,27 +1541,39 @@ function Progress({ sessions, bio }) {
         };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [ex, sessions, bio]);
+  }, [ex, sessions, bio, periodCutoff]);
 
   // для e1RM строим только точки с валидным значением (BW/нечисловые повторы пропускаются)
   const e1rmData = useMemo(() => exData.filter((p) => p.e1rm > 0), [exData]);
 
   const volData = useMemo(() =>
     [...sessions]
+      .filter((s) => inPeriod(s.date))
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((s) => ({ label: fmtDate(s.date), v: Math.round(sessionVolume(s, bio)) })),
-    [sessions, bio]);
+    [sessions, bio, periodCutoff]);
 
   const bioData = useMemo(() =>
-    [...bio].filter((b) => b[bioMetric] != null)
+    [...bio].filter((b) => b[bioMetric] != null && inPeriod(b.date))
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((b) => ({ label: fmtDate(b.date), v: b[bioMetric] })),
-    [bio, bioMetric]);
+    [bio, bioMetric, periodCutoff]);
 
   const bm = BIO_METRICS.find((m) => m.k === bioMetric);
 
   return (
     <div>
+      {/* период отображения для всех временных графиков ниже (выбор по упражнению, объём, состав тела) */}
+      <div className="ft-card ft-period-card">
+        <span className="ft-mini ft-muted">Период графиков</span>
+        <div className="ft-pills" style={{ flexWrap: "wrap" }}>
+          {PROGRESS_PERIODS.map((p) => (
+            <button key={p.k} className={"ft-pill" + (period === p.k ? " on" : "")}
+              onClick={() => setPeriod(p.k)}>{p.label}</button>
+          ))}
+        </div>
+      </div>
+
       <div className="ft-card">
         <div className="ft-card-h">Прогресс по упражнению</div>
         {exNames.length === 0 ? (
