@@ -106,6 +106,7 @@ export const SETTINGS_DEFAULTS = {
   restNotify: false,      // локальное уведомление по окончании отдыха, если вкладка в фоне
   progressionStep: null,  // null = авто (stepKg по упражнению)
   homeExercise: null,     // упражнение для hero-графика на «Обзоре» (null = авто, самое частое)
+  weeklyGoal: 2,          // цель тренировочных дней в неделю (для стрика на «Обзоре»)
   pushOptIn: false,       // фаза B
   pushHour: 18,           // фаза B
   pushThresholdDays: 3,   // фаза B
@@ -324,7 +325,8 @@ export function detectSessionPRs(history, session, bio) {
  * это помощь/утяжелитель, не сопоставим как PR. Вес тела для не-BW упражнений на нагрузку
  * не влияет, поэтому bio здесь не нужен. */
 export function exercisePRList(sessions) {
-  const best = {}; // canon -> { name, weight, reps, date }
+  // canon -> { name, weight, reps, date, e1rm, e1rmReps, e1rmDate, volume, volumeDate }
+  const best = {};
   const sorted = [...(sessions || [])].sort(
     (a, b) => a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
   );
@@ -334,22 +336,93 @@ export function exercisePRList(sessions) {
       if (BW_EXERCISES.has(cn)) continue;
       const top = exerciseTop(e, null);
       if (!top || top <= 0) continue;
-      const cur = best[cn];
-      if (cur && top <= cur.weight) continue; // строго больше → первая дата достижения остаётся
-      // макс. повторы среди подходов, давших этот вес (нечисловые «до отказа» пропускаем)
-      let reps = null;
-      for (const st of e.sets) {
-        if (setLoad(st, e.n, null) !== top) continue;
-        const r = num(st.reps);
-        if (r != null && (reps == null || r > reps)) reps = r;
+      // запись создаётся по первому появлению упражнения с рабочим весом
+      const cur = best[cn] || (best[cn] = {
+        name: e.n, weight: 0, reps: null, date: s.date,
+        e1rm: 0, e1rmReps: null, e1rmDate: null, volume: 0, volumeDate: null,
+      });
+
+      // макс. рабочий вес + первая дата достижения (строго больше → дата остаётся)
+      if (top > cur.weight) {
+        let reps = null; // макс. повторы среди подходов, давших этот вес
+        for (const st of e.sets) {
+          if (setLoad(st, e.n, null) !== top) continue;
+          const r = num(st.reps);
+          if (r != null && (reps == null || r > reps)) reps = r;
+        }
+        cur.name = e.n; cur.weight = top; cur.reps = reps; cur.date = s.date;
       }
-      best[cn] = { name: e.n, weight: top, reps, date: s.date };
+
+      // макс. оценка 1ПМ (Эпли) + подход, давший её
+      const e1 = exerciseE1rmBest(e, null);
+      if (e1.value > cur.e1rm) {
+        cur.e1rm = e1.value; cur.e1rmReps = e1.reps; cur.e1rmW = e1.w; cur.e1rmDate = s.date;
+      }
+
+      // макс. объём упражнения за одну сессию
+      const vol = exerciseVolume(e, null);
+      if (vol > cur.volume) { cur.volume = vol; cur.volumeDate = s.date; }
     }
   }
-  // сортировка по дате достижения: свежие рекорды выше, давние — ниже (тай-брейк по имени)
+  // сортировка по дате достижения веса-рекорда: свежие выше (тай-брейк по имени)
   return Object.values(best).sort(
     (a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name, "ru")
   );
+}
+
+/* ---- недельный стрик (фича) ----
+ * Неделя = пн–вс. «Засчитана», если в ней ≥ goal тренировочных ДНЕЙ (уникальных дат).
+ * streak — число подряд идущих засчитанных недель назад от текущей; текущая (незавершённая)
+ * неделя не обрывает серию (грейс): входит в счёт, если цель уже набрана, иначе пропускается.
+ * Возвращает { streak, thisWeekCount, goal, weeks:[{label, count, met}] } | null. */
+const DAY_MS = 864e5;
+// понедельник той недели, в которую попадает дата (YYYY-MM-DD), как локальная полночь
+function weekStart(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const dow = (d.getDay() + 6) % 7; // пн=0 … вс=6
+  d.setDate(d.getDate() - dow);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+const weekKey = (d) => d.getTime();
+
+export function weeklyStreak(sessions, goal = 2) {
+  if (!sessions || !sessions.length) return null;
+  const g = Math.max(1, goal || 1);
+  // неделя -> множество уникальных дат тренировок
+  const byWeek = new Map();
+  for (const s of sessions) {
+    if (!s || !s.date) continue;
+    const k = weekKey(weekStart(s.date));
+    if (!byWeek.has(k)) byWeek.set(k, new Set());
+    byWeek.get(k).add(s.date);
+  }
+  const countOf = (k) => (byWeek.get(k) ? byWeek.get(k).size : 0);
+
+  const cur = weekStart(today());
+  const thisWeekCount = countOf(weekKey(cur));
+
+  // стрик: идём от текущей недели назад по календарным неделям
+  let streak = 0;
+  let w = new Date(cur);
+  let first = true;
+  while (true) {
+    const met = countOf(weekKey(w)) >= g;
+    if (met) streak++;
+    else if (!first) break;     // прошедшая неделя без цели обрывает серию
+    // first && !met — грейс текущей недели: не считаем, но и не обрываем
+    first = false;
+    w = new Date(w.getTime() - 7 * DAY_MS);
+  }
+
+  // мини-полоска: последние 8 недель (старые → новые)
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const wd = new Date(cur.getTime() - i * 7 * DAY_MS);
+    const count = countOf(weekKey(wd));
+    weeks.push({ label: monthShort(wd.toISOString().slice(0, 10)), count, met: count >= g });
+  }
+  return { streak, thisWeekCount, goal: g, weeks };
 }
 
 // шаг прибавки веса: базовые многосуставные «ноги» +5 кг, остальное +2.5 кг
@@ -380,6 +453,7 @@ export function suggestForm(tpl, sessions) {
           weight: s.weight ?? "",
           reps: s.reps ?? "",
           hint: e.s[i]?.[2] || "",
+          done: false,
         })),
       };
     }
@@ -389,6 +463,7 @@ export function suggestForm(tpl, sessions) {
         weight: arr[0] ? arr[0] : "",
         reps: arr[1] != null ? arr[1] : "",
         hint: arr[2] || "",
+        done: false,
       })),
     };
   });
@@ -818,6 +893,32 @@ html,body{overflow-x:hidden;max-width:100%;}
 .ft-pr-val{font-size:20px;font-weight:700;color:${C.accent};}
 .ft-pr-val .ft-pr-reps{font-size:13px;font-weight:600;color:${C.muted};}
 .ft-pr-date{margin-top:1px;}
+.ft-pr-sub{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12px;margin-top:3px;}
+.ft-pr-sub-k{color:${C.muted};}
+.ft-pr-sub-v{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;color:${C.txt};font-weight:600;}
+.ft-pr-sub-d{color:${C.muted};font-weight:400;margin-left:4px;}
+
+/* подход «сделан»: заблокированные поля + кнопка-галочка (фича) */
+.ft-set.ft-set-log{grid-template-columns:24px 1fr 1fr 28px 28px;}
+.ft-input-locked{opacity:.55;color:${C.muted};border-color:${C.line};cursor:default;}
+.ft-set-check{background:none;border:1px solid ${C.line};color:${C.muted};cursor:pointer;display:flex;align-items:center;justify-content:center;padding:4px;border-radius:6px;transition:.12s;}
+.ft-set-check:hover{color:${C.accent};border-color:${C.accent};}
+.ft-set-check.on{color:${C.bg};background:${C.accent};border-color:${C.accent};}
+.ft-set-check.on:hover{background:#d9ff5c;}
+
+/* недельный стрик (фича) */
+.ft-streak{display:flex;align-items:center;gap:14px;}
+.ft-streak-icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;background:rgba(200,242,63,.12);border:1px solid ${C.accent2};color:${C.accent};flex:none;}
+.ft-streak-main{display:flex;flex-direction:column;min-width:0;flex:1;}
+.ft-streak-v{font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;line-height:1;}
+.ft-streak-v .ft-streak-unit{font-size:13px;font-weight:700;color:${C.muted};margin-left:6px;}
+.ft-streak-sub{font-size:12px;color:${C.muted};margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.ft-streak-dots{display:inline-flex;gap:4px;}
+.ft-streak-dot{width:9px;height:9px;border-radius:50%;border:1px solid ${C.accent2};background:none;}
+.ft-streak-dot.on{background:${C.accent};box-shadow:0 0 5px ${C.accent};}
+.ft-streak-weeks{display:flex;align-items:flex-end;gap:3px;height:26px;flex:none;}
+.ft-streak-week{width:7px;border-radius:2px;background:${C.line};}
+.ft-streak-week.on{background:${C.accent};}
 
 @media(max-width:520px){
   .ft-bio-form{grid-template-columns:1fr 1fr;}
