@@ -21,6 +21,7 @@ declare(strict_types=1);
 require __DIR__ . '/lib/Response.php';
 require __DIR__ . '/lib/Db.php';
 require __DIR__ . '/lib/Auth.php';
+require __DIR__ . '/lib/Exercises.php';
 
 $cfg = require __DIR__ . '/config.php';
 
@@ -97,6 +98,9 @@ function handleSessions(PDO $pdo, string $method, ?string $id): void
         if ($sid === '' || !validDate($date) || $tpl === '' || !is_array($exercises)) {
             Response::error('Некорректная сессия', 422);
         }
+        // канонизация названий + склейка подходов — единый источник правды на сервере
+        // (синонимы не плодят дубли, какой бы клиент/импорт ни прислал данные)
+        $exercises = Exercises::normExercises($exercises);
         $stmt = $pdo->prepare(
             'INSERT INTO sessions (id, date, template_id, data)
              VALUES (:id, :date, :tpl, :data)
