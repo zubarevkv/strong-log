@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
   Plus, Trash2, Check, X, ChevronDown, ChevronUp, ArrowUp, ArrowDown,
   LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus, Trophy,
-  Timer, Play, Pause, RotateCcw, Settings,
+  Timer, Play, Pause, RotateCcw, Settings, Flame,
 } from "lucide-react";
 
 import {
@@ -18,7 +18,7 @@ import {
   suggestForm, exerciseMeta, lastExerciseSets, prSessionMap,
   heroLift, weeklyTonnage, fatTrend, shortLift, setScheme, num1000,
   exerciseE1rmBest, detectSessionPRs, suggestProgression, recompTrend,
-  exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings, canon,
+  exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings, canon, weeklyStreak,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
 
@@ -300,6 +300,12 @@ function SettingsPanel({ settings, onSave, onClose, exercises = [] }) {
               onChange={(e) => toggleNotify(e.target.checked)} />
           </label>
           <label className="ft-set-row">
+            <span>Цель тренировок в неделю</span>
+            <input className="ft-input ft-mono" type="number" min="1" max="7" step="1"
+              value={f.weeklyGoal}
+              onChange={(e) => set("weeklyGoal", Math.min(7, Math.max(1, num(e.target.value) || 2)))} />
+          </label>
+          <label className="ft-set-row">
             <span>Шаг прогрессии веса</span>
             <div className="ft-select-wrap">
               <select className="ft-select" value={f.progressionStep == null ? "auto" : String(f.progressionStep)}
@@ -345,6 +351,7 @@ function Home({ sessions, bio, go, templates, settings }) {
   const lb = useMemo(() => [...bio].sort((a, b) => b.date.localeCompare(a.date))[0], [bio]);
 
   const hero = useMemo(() => heroLift(sessions, bio, settings?.homeExercise), [sessions, bio, settings]);
+  const streak = useMemo(() => weeklyStreak(sessions, settings?.weeklyGoal), [sessions, settings]);
   const tonnage = useMemo(() => weeklyTonnage(sessions, bio), [sessions, bio]);
   const fatInfo = useMemo(() => fatTrend(bio), [bio]);
   const recomp = useMemo(() => recompTrend(bio, 90), [bio]);
@@ -394,6 +401,38 @@ function Home({ sessions, bio, go, templates, settings }) {
           <button className="ft-btn" onClick={() => go("log")}>
             <Plus size={16} /> Записать первую тренировку
           </button>
+        </div>
+      )}
+
+      {/* СТРИК — серия недель с выполненной целью */}
+      {streak && (
+        <div className="ft-card ft-streak">
+          <div className="ft-streak-icon"><Flame size={22} /></div>
+          <div className="ft-streak-main">
+            <div className="ft-streak-v">
+              {streak.streak}<span className="ft-streak-unit">нед подряд</span>
+            </div>
+            <div className="ft-streak-sub">
+              {streak.streak === 0 ? (
+                <span>Начни серию — цель {streak.goal} трен./нед</span>
+              ) : (
+                <>
+                  <span>На этой неделе: {streak.thisWeekCount} / {streak.goal}</span>
+                  <span className="ft-streak-dots">
+                    {Array.from({ length: streak.goal }).map((_, i) => (
+                      <span key={i} className={"ft-streak-dot" + (i < streak.thisWeekCount ? " on" : "")} />
+                    ))}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="ft-streak-weeks" title="Тренировки по неделям (8 недель)">
+            {streak.weeks.map((w, i) => (
+              <span key={i} className={"ft-streak-week" + (w.met ? " on" : "")}
+                style={{ height: Math.max(4, Math.min(26, 4 + w.count * 6)) }} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -643,7 +682,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     setDate(s.date);
     setForm(s.exercises.map((e) => ({
       n: e.n,
-      sets: e.sets.map((x) => ({ weight: x.weight ?? "", reps: x.reps ?? "", hint: x.hint ?? "" })),
+      sets: e.sets.map((x) => ({ weight: x.weight ?? "", reps: x.reps ?? "", hint: x.hint ?? "", done: false })),
     })));
     setOpenHist(false);
     setConfirmId(null);
@@ -669,10 +708,22 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     setForm((f) => {
       const c = structuredClone(f);
       const last = c[ei].sets[c[ei].sets.length - 1] || { weight: "", reps: "" };
-      c[ei].sets.push({ weight: last.weight, reps: last.reps, hint: "" });
+      c[ei].sets.push({ weight: last.weight, reps: last.reps, hint: "", done: false });
       return c;
     });
-    startRest?.(); // авто-старт таймера отдыха (если включён в настройках) — фича #5
+  }
+  // отметка «подход сделан»: блокирует поля; на переходе → авто-старт таймера отдыха
+  // (сам старт гейтится настройкой autoStartRest внутри App.startRest)
+  function toggleDone(ei, si) {
+    let turnedOn = false;
+    setForm((f) => {
+      const c = structuredClone(f);
+      const next = !c[ei].sets[si].done;
+      c[ei].sets[si].done = next;
+      turnedOn = next;
+      return c;
+    });
+    if (turnedOn) startRest?.();
   }
   function delSet(ei, si) {
     setForm((f) => {
@@ -915,18 +966,25 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
             </div>
           )}
           <div className="ft-sets">
-            <div className="ft-set ft-set-head ft-mini ft-muted">
-              <span>#</span><span>{BW_EXERCISES.has(e.n) ? "помощь+/утяж−" : "кг"}</span><span>повт.</span><span></span>
+            <div className="ft-set ft-set-log ft-set-head ft-mini ft-muted">
+              <span>#</span><span>{BW_EXERCISES.has(e.n) ? "помощь+/утяж−" : "кг"}</span><span>повт.</span><span></span><span></span>
             </div>
             {e.sets.map((s, si) => (
-              <div key={si} className="ft-set">
+              <div key={si} className="ft-set ft-set-log">
                 <span className="ft-mono ft-muted">{si + 1}</span>
-                <input className="ft-input ft-mono" type="number" inputMode="decimal"
+                <input className={"ft-input ft-mono" + (s.done ? " ft-input-locked" : "")}
+                  type="number" inputMode="decimal" disabled={s.done}
                   value={s.weight} placeholder="—"
                   onChange={(ev) => setCell(ei, si, "weight", ev.target.value)} />
-                <input className="ft-input ft-mono" type="number" inputMode="numeric"
+                <input className={"ft-input ft-mono" + (s.done ? " ft-input-locked" : "")}
+                  type="number" inputMode="numeric" disabled={s.done}
                   value={s.reps ?? ""} placeholder={s.hint || "—"}
                   onChange={(ev) => setCell(ei, si, "reps", ev.target.value)} />
+                <button className={"ft-set-check" + (s.done ? " on" : "")} onClick={() => toggleDone(ei, si)}
+                  title={s.done ? "Подход выполнен — нажми, чтобы изменить" : "Отметить подход выполненным"}
+                  aria-pressed={s.done}>
+                  <Check size={14} />
+                </button>
                 <button className="ft-icon-b" onClick={() => delSet(ei, si)} title="Удалить подход">
                   <Trash2 size={14} />
                 </button>
@@ -1189,6 +1247,7 @@ function ExercisePicker({ catalog, onPick, onClose }) {
 
 /* ---------------------------- REST TIMER (фичи #1) ---------------------------- */
 const REST_PRESETS = [60, 90, 120, 180];
+const REST_LS_KEY = "strong-log:rest"; // метка окончания отсчёта — переживает перезагрузку вкладки
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 // короткий бип через WebAudio (без ассетов)
@@ -1226,41 +1285,108 @@ function RestTimer({ controllerRef, notify }) {
   const [running, setRunning] = useState(false);
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState(false); // визуальная вспышка по нулю
-  const tick = useRef(null);
+  const endsAtRef = useRef(null);           // epoch ms окончания отсчёта (null = не идёт)
+  const firedRef = useRef(false);           // защита от двойного срабатывания «готово»
+  const notifyRef = useRef(notify);         // последнее значение настройки уведомлений
+  notifyRef.current = notify;
 
+  function persist() {
+    try {
+      if (endsAtRef.current) localStorage.setItem(REST_LS_KEY, String(endsAtRef.current));
+      else localStorage.removeItem(REST_LS_KEY);
+    } catch { /* приватный режим — переживём без persistence */ }
+  }
+  // сигнал окончания отдыха (звук/вибро/уведомление) — один раз на отсчёт
+  function finish() {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    endsAtRef.current = null;
+    persist();
+    setRunning(false);
+    setRemaining(0);
+    setDone(true);                         // вспышка — всегда (главный сигнал на iOS)
+    restBeep();                            // звук
+    navigator.vibrate?.([200, 100, 200]);  // вибро — где поддерживается
+    notifyRestDone(notifyRef.current);     // уведомление, если в фоне и включено
+  }
+  // остаток считается от метки времени, а не декрементом — троттлинг/заморозка
+  // фоновой вкладки не вызывает дрейфа; при возврате значение всегда корректное
+  function recompute() {
+    if (endsAtRef.current == null) return;
+    const left = Math.max(0, Math.round((endsAtRef.current - Date.now()) / 1000));
+    setRemaining(left);
+    if (left <= 0) finish();
+  }
+
+  // тик, пока идёт отсчёт (частый — для плавного приближения к секунде; точность даёт recompute)
   useEffect(() => {
     if (!running) return;
-    tick.current = setInterval(() => {
-      setRemaining((r) => (r > 0 ? r - 1 : 0));
-    }, 1000);
-    return () => clearInterval(tick.current);
-  }, [running]);
+    const id = setInterval(recompute, 500);
+    return () => clearInterval(id);
+  }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // срабатывание ровно при переходе в 0 на работающем таймере;
-  // ручной «Сброс» гасит running одновременно с remaining → сигнала не будет
+  // возврат на вкладку / разблокировка экрана / фокус окна — пересчитать немедленно
   useEffect(() => {
-    if (running && remaining === 0) {
-      setRunning(false);
-      setDone(true);          // вспышка — всегда (главный сигнал на iOS)
-      restBeep();             // звук
-      navigator.vibrate?.([200, 100, 200]); // вибро — где поддерживается
-      notifyRestDone(notify); // уведомление, если в фоне и включено в настройках
+    const onVis = () => { if (!document.hidden) recompute(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // восстановление незавершённого отсчёта после перезагрузки/выгрузки вкладки
+  useEffect(() => {
+    let saved = null;
+    try { saved = Number(localStorage.getItem(REST_LS_KEY)) || null; } catch { saved = null; }
+    if (saved && saved - Date.now() > 0) {
+      endsAtRef.current = saved;
+      firedRef.current = false;
+      setRunning(true);
+      setOpen(true);
+      recompute();
+    } else if (saved) {
+      try { localStorage.removeItem(REST_LS_KEY); } catch { /* no-op */ }
     }
-  }, [remaining, running, notify]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function start(sec) {
+    firedRef.current = false;
     setDone(false);
-    setRemaining(sec); setRunning(true); setOpen(true);
+    endsAtRef.current = Date.now() + sec * 1000;
+    persist();
+    setRemaining(sec);
+    setRunning(true);
+    setOpen(true);
   }
-  function toggle() { if (remaining > 0) setRunning((v) => !v); }
-  function reset() { setRunning(false); setRemaining(0); setDone(false); }
+  function toggle() {
+    if (running) {                         // пауза — фиксируем остаток, снимаем метку
+      setRunning(false);
+      endsAtRef.current = null;
+      persist();
+    } else if (remaining > 0) {            // продолжить — новая метка от текущего остатка
+      firedRef.current = false;
+      endsAtRef.current = Date.now() + remaining * 1000;
+      persist();
+      setRunning(true);
+    }
+  }
+  function reset() {
+    setRunning(false);
+    setRemaining(0);
+    setDone(false);
+    endsAtRef.current = null;
+    firedRef.current = false;
+    persist();
+  }
   function hide() { reset(); setOpen(false); }
 
   // контроллер для авто-старта из формы тренировки (фича #5)
   useEffect(() => {
     if (controllerRef) controllerRef.current = { start };
     return () => { if (controllerRef) controllerRef.current = null; };
-  }, [controllerRef]);
+  }, [controllerRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const expanded = open || running || remaining > 0 || done;
 
@@ -1682,7 +1808,7 @@ function Progress({ sessions, bio }) {
         )}
       </div>
 
-      {/* ЛИЧНЫЕ РЕКОРДЫ — макс. реальный рабочий вес в подходе по упражнению */}
+      {/* ЛИЧНЫЕ РЕКОРДЫ — макс. рабочий вес, оценка 1ПМ и объём по упражнению */}
       <div className="ft-section-h" style={{ marginTop: 18 }}>Личные рекорды</div>
       {prList.length === 0 ? (
         <div className="ft-muted ft-mini" style={{ padding: "0 2px" }}>
@@ -1698,6 +1824,24 @@ function Progress({ sessions, bio }) {
                 {p.reps != null && <span className="ft-pr-reps"> × {p.reps}</span>}
               </div>
               <div className="ft-pr-date ft-mini ft-muted">рекорд: {fmtDate(p.date)}</div>
+              {p.e1rm > 0 && (
+                <div className="ft-pr-sub">
+                  <span className="ft-pr-sub-k">e1RM</span>
+                  <span className="ft-pr-sub-v">
+                    {Math.round(p.e1rm)} кг
+                    <span className="ft-pr-sub-d">{p.e1rmDate ? fmtDate(p.e1rmDate) : ""}</span>
+                  </span>
+                </div>
+              )}
+              {p.volume > 0 && (
+                <div className="ft-pr-sub">
+                  <span className="ft-pr-sub-k">объём</span>
+                  <span className="ft-pr-sub-v">
+                    {Math.round(p.volume)} кг
+                    <span className="ft-pr-sub-d">{p.volumeDate ? fmtDate(p.volumeDate) : ""}</span>
+                  </span>
+                </div>
+              )}
             </div>
           ))}
         </div>
