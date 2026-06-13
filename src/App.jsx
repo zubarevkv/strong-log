@@ -546,7 +546,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
   const exerciseCatalog = useMemo(() => {
     const set = new Set();
     templates.forEach((t) => (t.ex || []).forEach((e) => { if (e.n) set.add(canon(e.n)); }));
-    exerciseNames(sessions).forEach((n) => set.add(n));
+    exerciseNames(sessions).forEach((n) => set.add(canon(n)));
     return [...set].sort((a, b) => a.localeCompare(b, "ru"));
   }, [templates, sessions]);
 
