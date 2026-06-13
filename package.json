@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "check:canon": "node scripts/check-canon-sync.mjs",
     "gen-icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {

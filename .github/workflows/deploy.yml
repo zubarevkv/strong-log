@@ -31,6 +31,7 @@ jobs:
       - name: Install & build
         run: |
           npm ci
+          npm run check:canon
           npm run build
 
       - name: Setup SSH key

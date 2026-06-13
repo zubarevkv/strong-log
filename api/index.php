@@ -98,6 +98,13 @@ function handleSessions(PDO $pdo, string $method, ?string $id): void
         if ($sid === '' || !validDate($date) || $tpl === '' || !is_array($exercises)) {
             Response::error('Некорректная сессия', 422);
         }
+        // exercises должен быть списком объектов-упражнений, а не объектом/скаляром:
+        // иначе normExercises молча отбросит всё и сохранит пустую сессию с кодом 200
+        foreach ($exercises as $e) {
+            if (!is_array($e)) {
+                Response::error('Некорректный формат упражнений', 422);
+            }
+        }
         // канонизация названий + склейка подходов — единый источник правды на сервере
         // (синонимы не плодят дубли, какой бы клиент/импорт ни прислал данные)
         $exercises = Exercises::normExercises($exercises);
