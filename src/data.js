@@ -763,8 +763,8 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-hist-toggle{width:100%;background:none;border:1px solid ${C.line};color:${C.txt};border-radius:10px;padding:10px;min-height:50px;font-weight:600;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin:14px 0 12px;}
 .ft-hist .ft-mini{margin-top:3px;}
 .ft-hist .ft-mini .ft-mono{color:${C.txt};}
-/* в карточках истории/замеров иконки не раздуваем до 50px — иначе верхний ряд делает паддинг визуально больше боковых */
-.ft-hist .ft-icon-b{min-height:36px;min-width:36px;}
+/* в карточках истории/замеров и в шапке упражнений иконки не раздуваем до 50px — иначе верхний ряд делает паддинг визуально больше боковых */
+.ft-hist .ft-icon-b,.ft-ex-h .ft-icon-b{min-height:36px;min-width:36px;}
 
 .ft-bio-form{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;}
 .ft-field{display:flex;flex-direction:column;gap:4px;}
