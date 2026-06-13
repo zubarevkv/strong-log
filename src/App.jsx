@@ -851,7 +851,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
                     <span className="ft-muted ft-mini" style={{ marginLeft: 8 }}>{fmtDate(s.date)}</span>
                   </div>
                   <div className="ft-row" style={{ gap: 10 }}>
-                    <span className="ft-mono ft-muted ft-mini">{Math.round(totalVol)} об.</span>
+                    <span className="ft-mono ft-muted ft-mini">{Math.round(totalVol)} кг</span>
                     {confirmId === s.id ? (
                       <span className="ft-row" style={{ gap: 4 }}>
                         <button className="ft-confirm-del" onClick={() => delSession(s.id)}>Удалить</button>
@@ -1525,7 +1525,7 @@ function Body({ bio, upsertBio, removeBio, onErr }) {
         </div>
       </div>
 
-      <button className="ft-btn ft-save" onClick={commit} disabled={saving}>
+      <button className="ft-btn ft-save" style={{ marginBottom: 12 }} onClick={commit} disabled={saving}>
         <Check size={16} /> {saving ? "Сохранение…" : "Сохранить замер"}
       </button>
       {toast && <div className="ft-toast"><Check size={15} /> {toast}</div>}
@@ -1706,18 +1706,19 @@ function Progress({ sessions, bio }) {
           <div className="ft-muted ft-mini">Запиши тренировку, чтобы увидеть графики.</div>
         ) : (
           <>
-            <div className="ft-row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            {/* строка 1 — выбор упражнения; строка 2 — теги-метрики */}
+            <div className="ft-row" style={{ marginBottom: 8 }}>
               <div className="ft-select-wrap">
                 <select className="ft-select" value={ex} onChange={(e) => setEx(e.target.value)}>
                   {exNames.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
                 <ChevronDown size={14} className="ft-select-ic" />
               </div>
-              <div className="ft-pills">
-                <button className={"ft-pill" + (metric === "volume" ? " on" : "")} onClick={() => setMetric("volume")}>Объём</button>
-                <button className={"ft-pill" + (metric === "top" ? " on" : "")} onClick={() => setMetric("top")}>Макс. вес</button>
-                <button className={"ft-pill" + (metric === "e1rm" ? " on" : "")} onClick={() => setMetric("e1rm")}>e1RM</button>
-              </div>
+            </div>
+            <div className="ft-pills" style={{ flexWrap: "wrap", marginBottom: 10 }}>
+              <button className={"ft-pill" + (metric === "volume" ? " on" : "")} onClick={() => setMetric("volume")}>Объём</button>
+              <button className={"ft-pill" + (metric === "top" ? " on" : "")} onClick={() => setMetric("top")}>Макс. вес</button>
+              <button className={"ft-pill" + (metric === "e1rm" ? " on" : "")} onClick={() => setMetric("e1rm")}>e1RM</button>
             </div>
             {metric === "e1rm" && e1rmData.length === 0 ? (
               <div className="ft-muted ft-mini">Нет данных для оценки 1ПМ (нужен рабочий вес и числовые повторы).</div>
@@ -1735,7 +1736,7 @@ function Progress({ sessions, bio }) {
         {sessions.length === 0 ? (
           <div className="ft-muted ft-mini">Запиши тренировку, чтобы увидеть график.</div>
         ) : (
-          <Chart data={volData} dataKey="v" color={C.accent2} unit="об." type="line" />
+          <Chart data={volData} dataKey="v" color={C.accent2} unit="кг" type="line" />
         )}
       </div>
 
@@ -1857,7 +1858,7 @@ function SetBreakdownTip({ active, payload }) {
   const p = payload[0].payload;
   const rows = p.setRows || [];
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 12 }}>
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, minWidth: 124 }}>
       <div style={{ color: C.muted, marginBottom: 4 }}>{p.label}</div>
       {rows.map((r, i) => (
         <div key={i} className="ft-mono" style={{ color: C.txt }}>
@@ -1876,7 +1877,7 @@ function E1rmTip({ active, payload }) {
   if (!active || !payload || !payload.length) return null;
   const p = payload[0].payload;
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 12 }}>
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, minWidth: 124 }}>
       <div style={{ color: C.muted, marginBottom: 4 }}>{p.label}</div>
       {p.e1rmSet && (
         <div className="ft-mono" style={{ color: C.txt }}>{p.e1rmSet.w} × {p.e1rmSet.reps}</div>
@@ -1889,7 +1890,7 @@ function E1rmTip({ active, payload }) {
 function Chart({ data, dataKey, color, unit, type, tooltipContent }) {
   if (!data.length) return <div className="ft-muted ft-mini">Нет данных.</div>;
   const tip = {
-    contentStyle: { background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12 },
+    contentStyle: { background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, color: C.txt, fontSize: 12, minWidth: 124, padding: "8px 12px" },
     labelStyle: { color: C.muted },
     formatter: (v) => [`${v}${unit ? " " + unit : ""}`, ""],
   };
