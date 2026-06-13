@@ -717,6 +717,8 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-hist .ft-mini .ft-mono{color:${C.txt};}
 /* в карточках истории/замеров и в шапке упражнений иконки не раздуваем до 50px — иначе верхний ряд делает паддинг визуально больше боковых */
 .ft-hist .ft-icon-b,.ft-ex-h .ft-icon-b{min-height:36px;min-width:36px;}
+/* в шапке упражнения тап-зона иконки 36px, но в раскладке схлопываем до высоты плашки (22px) отрицательным margin — иначе ряд центрирует «№» ниже, и отступ сверху становится больше бокового */
+.ft-ex-h .ft-icon-b{margin-top:-7px;margin-bottom:-7px;}
 
 .ft-bio-form{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;}
 .ft-field{display:flex;flex-direction:column;gap:4px;}
