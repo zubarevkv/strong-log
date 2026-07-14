@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Dumbbell, HeartPulse, TrendingUp,
   Plus, Trash2, Check, X, ChevronDown, ChevronUp, ArrowUp, ArrowDown,
   LogOut, KeyRound, CloudOff, Pencil, Copy, ListPlus, Trophy,
-  Timer, Play, Pause, RotateCcw, Settings, Flame,
+  Timer, Play, Pause, RotateCcw, Settings, Flame, Download,
 } from "lucide-react";
 
 import {
@@ -21,6 +21,7 @@ import {
   exerciseNames, exercisePRList, SETTINGS_DEFAULTS, withSettings, canon, weeklyStreak,
 } from "./data.js";
 import { api, auth, ApiError } from "./api.js";
+import { downloadHistorySVG } from "./svgExport.js";
 
 /* ---------------------------- LOGO ---------------------------- */
 // вордмарк STR<O>NG·LOG: буква «O» — зелёный знак-болт (инлайн-SVG, масштаб от font-size)
@@ -1598,6 +1599,13 @@ function Progress({ sessions, bio }) {
               onClick={() => setPeriod(p.k)}>{p.label}</button>
           ))}
         </div>
+        {sessions.length > 0 && (
+          <button className="ft-prog-btn" style={{ marginLeft: "auto" }}
+            onClick={() => downloadHistorySVG(sessions, bio)}
+            title="Скачать историю тренировок в SVG">
+            <Download size={14} /> Экспорт SVG
+          </button>
+        )}
       </div>
 
       <div className="ft-card">
