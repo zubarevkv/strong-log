@@ -880,6 +880,15 @@ html,body{overflow-x:hidden;max-width:100%;touch-action:manipulation;-webkit-tex
 .ft-set-check:hover{color:${C.accent};border-color:${C.accent};}
 .ft-set-check.on{color:${C.bg};background:${C.accent};border-color:${C.accent};}
 .ft-set-check.on:hover{background:#d9ff5c;}
+/* BW-упражнения: тумблер знака «±» в ячейке веса (утяжелитель −), без новой колонки в сетке */
+.ft-weight-wrap{position:relative;display:flex;align-items:center;}
+.ft-weight-wrap .ft-input{width:100%;padding-left:34px;}
+.ft-sign-btn{position:absolute;left:5px;top:50%;transform:translateY(-50%);z-index:2;width:26px;height:26px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid ${C.line};border-radius:6px;background:${C.bg};color:${C.muted};font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;line-height:1;cursor:pointer;transition:.12s;}
+.ft-sign-btn:hover{color:${C.accent};border-color:${C.accent};}
+.ft-sign-btn.on{color:${C.bg};background:${C.accent};border-color:${C.accent};}
+.ft-sign-btn:disabled{opacity:.55;cursor:default;}
+/* чекбокс на уровне упражнения — тот же вид, что у галочки подхода; в flex-шапке не сжимаем и не раздуваем высоту ряда */
+.ft-ex-check{flex:none;width:28px;height:28px;margin-top:-3px;margin-bottom:-3px;}
 
 /* недельный стрик (фича) */
 .ft-streak{display:flex;align-items:center;gap:14px;}

@@ -545,17 +545,29 @@ function Home({ sessions, bio, go, templates, settings }) {
 }
 
 /* ---------------------------- LOG ---------------------------- */
+const DRAFT_LS_KEY = "strong-log:draft"; // незавершённая тренировка — переживает смену вкладок и перезагрузку
+// читает черновик текущей (несохранённой) тренировки; null → нет/битый/старый формат
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_LS_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || d.v !== 1 || !Array.isArray(d.form)) return null;
+    return { tplId: d.tplId, date: d.date, form: d.form, editingId: d.editingId ?? null };
+  } catch { return null; }
+}
 function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTemplate, removeTemplate, settings, startRest }) {
-  const [tplId, setTplId] = useState(templates[0].id);
-  const [date, setDate] = useState(today());
-  const [form, setForm] = useState(() => suggestForm(templates[0], sessions));
+  const draft0 = useMemo(loadDraft, []); // черновик читаем один раз при монтировании; хуки идут сверху — draft0 виден ниже
+  const [tplId, setTplId] = useState(() => (draft0 ? draft0.tplId : templates[0].id));
+  const [date, setDate] = useState(() => (draft0 ? draft0.date : today()));
+  const [form, setForm] = useState(() => (draft0 ? draft0.form : suggestForm(templates[0], sessions)));
   const [openHist, setOpenHist] = useState(false);
   const [toast, setToast] = useState("");
   const [toastPr, setToastPr] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   const [confirmDelEx, setConfirmDelEx] = useState(null); // индекс упражнения, ожидающего подтверждения удаления
   const [saving, setSaving] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  const [editingId, setEditingId] = useState(() => (draft0 ? draft0.editingId : null));
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorNew, setEditorNew] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false); // выбор упражнения из базы для добавления в форму
@@ -603,6 +615,12 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     }
   }, [templates]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // автосохранение черновика незавершённой тренировки (переживает смену вкладок и перезагрузку)
+  useEffect(() => {
+    try { localStorage.setItem(DRAFT_LS_KEY, JSON.stringify({ v: 1, tplId, date, form, editingId })); }
+    catch { /* приватный режим — работаем без persistence */ }
+  }, [form, tplId, date, editingId]);
+
   function pick(id) {
     const tpl = templates.find((t) => t.id === id) || templates[0];
     setTplId(tpl.id);
@@ -638,6 +656,12 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       return c;
     });
   }
+  // тумблер знака веса для BW-упражнений (утяжелитель −): пустое → "-", "-10" ⇄ "10"
+  function toggleSign(ei, si) {
+    const v = String(form[ei].sets[si].weight ?? "");
+    const next = v.startsWith("-") ? v.slice(1) : ("-" + v);
+    setCell(ei, si, "weight", next);
+  }
   function addSet(ei) {
     setForm((f) => {
       const c = structuredClone(f);
@@ -658,6 +682,14 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
       return c;
     });
     if (turnedOn) startRest?.();
+  }
+  // массовая отметка всех подходов упражнения; НЕ стартует таймер отдыха (в отличие от toggleDone)
+  function toggleExDone(ei) {
+    const c = structuredClone(form);
+    const cur = c[ei].sets;
+    const allDone = cur.length > 0 && cur.every((s) => s.done);
+    cur.forEach((s) => { s.done = !allDone; });
+    setForm(c);
   }
   function delSet(ei, si) {
     setForm((f) => {
@@ -700,6 +732,7 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
     const wasEditing = !!editingId;
     try {
       await addSession(session);
+      try { localStorage.removeItem(DRAFT_LS_KEY); } catch { /* no-op */ }
       // празднование PR: сравниваем с историей без самой сессии (ресейв не зажигает заново)
       const prs = detectSessionPRs(sessions, normSession(session), bio);
       setForm(suggestForm(tpl, sessions));
@@ -828,10 +861,16 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
         const preview = e.sets
           .map((x) => (x.weight ? x.weight + "×" : "") + (x.reps ?? ""))
           .filter(Boolean).join(" / ");
+        const allDone = e.sets.length > 0 && e.sets.every((s) => s.done);
         return (
         <div key={ei} className={"ft-card ft-ex" + (open ? " open" : "")}>
           <div className="ft-ex-h">
             <span className="ft-ex-num ft-mono">{ei + 1}</span>
+            <button className={"ft-set-check ft-ex-check" + (allDone ? " on" : "")}
+              onClick={() => toggleExDone(ei)} aria-pressed={allDone}
+              title={allDone ? "Снять отметку со всех подходов" : "Отметить все подходы выполненными"}>
+              <Check size={14} />
+            </button>
             <button className="ft-ex-toggle" onClick={() => toggleEx(e.n)} aria-expanded={open}
               title={open ? "Свернуть подходы" : "Открыть подходы"}>
               <span className="ft-ex-name">{e.n}</span>
@@ -872,10 +911,24 @@ function Log({ sessions, bio, addSession, removeSession, onErr, templates, addTe
             {e.sets.map((s, si) => (
               <div key={si} className="ft-set ft-set-log">
                 <span className="ft-mono ft-muted">{si + 1}</span>
-                <input className={"ft-input ft-mono" + (s.done ? " ft-input-locked" : "")}
-                  type="number" inputMode="decimal" disabled={s.done}
-                  value={s.weight} placeholder="—"
-                  onChange={(ev) => setCell(ei, si, "weight", ev.target.value)} />
+                {BW_EXERCISES.has(e.n) ? (
+                  <div className="ft-weight-wrap">
+                    <button type="button"
+                      className={"ft-sign-btn" + (String(s.weight ?? "").startsWith("-") ? " on" : "")}
+                      onClick={() => toggleSign(ei, si)} disabled={s.done}
+                      aria-pressed={String(s.weight ?? "").startsWith("-")}
+                      title="Утяжелитель: поставить/снять знак «−»" aria-label="Инвертировать знак веса">±</button>
+                    <input className={"ft-input ft-mono" + (s.done ? " ft-input-locked" : "")}
+                      type="text" inputMode="decimal" disabled={s.done}
+                      value={s.weight} placeholder="—"
+                      onChange={(ev) => setCell(ei, si, "weight", ev.target.value)} />
+                  </div>
+                ) : (
+                  <input className={"ft-input ft-mono" + (s.done ? " ft-input-locked" : "")}
+                    type="number" inputMode="decimal" disabled={s.done}
+                    value={s.weight} placeholder="—"
+                    onChange={(ev) => setCell(ei, si, "weight", ev.target.value)} />
+                )}
                 <input className={"ft-input ft-mono" + (s.done ? " ft-input-locked" : "")}
                   type="number" inputMode="numeric" disabled={s.done}
                   value={s.reps ?? ""} placeholder={s.hint || "—"}
